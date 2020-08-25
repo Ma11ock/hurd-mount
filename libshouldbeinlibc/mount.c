@@ -10,6 +10,7 @@
 #include <hurd/paths.h>
 #include <mntent.h>
 #include <string.h>
+#include <stdbool.h>
 
 #define SEARCH_FMTS _HURD "%sfs\0" _HURD "%s"
 #define DEFAULT_FSTYPE  "auto"
@@ -23,94 +24,120 @@ struct mnt_opt_map
     const char   *stropt;
 };
 
-static struct mnt_options_maps[] =
+static struct mnt_opt_map mnt_options_maps[] =
 {
     (struct mnt_opt_map){ MS_RDONLY,     "ro" },
     (struct mnt_opt_map){ MS_NOATIME,    "noatime" },
-    (struct mnt_opt_map){ MSNODIRATIME,  "nodiratime" },
+    (struct mnt_opt_map){ MS_NODIRATIME, "nodiratime" },
     (struct mnt_opt_map){ MS_RELATIME,   "relatime" },
 };
 
-/* C-string handling function
-   On success returns the number of chars appended to the options string
-   On failure returns 0 */
-static size_t mnt_append_option(char **str, const char *op)
+/*  Appends value to argz_vec-like string, creates it if it does not exist
+    Returns true on success,
+    Returns false on memory allocation error */
+static bool mnt_append_option(char **vecin, size_t *vecsiz, const char *op)
 {
-    char *opstr   = *str;
+    size_t cursize = *vecsiz;
+    char *vec = *vecin;
     size_t opsize = strlen(op) + 1;
-    size_t curstrsize;
 
-    if(opstr == NULL)
+    if(vec == NULL)
     {
-        opstr = malloc(opsize);
-        if(!opstr)
-            return 0;
-        memcpy(opstr, op, opsize);
+        cursize = opsize;
+        vec = strdup(op);
+        if(!vec)
+            return false;
     }
     else
     {
-        curstrsize = strlen(opstr);
-        opstr = realloc(opstr, curstrsize + opsize);
-        if(!opstr)
-            return 0;
-        memcpy(opstr + curstrsize, opstr, opsize);
+        cursize += opsize;
+        char *tmp = realloc(vec, cursize * sizeof(*vec));
+        if(!tmp)
+        {
+            free(vec);
+            return false;
+        }
+
+        vec = tmp;
+        memcpy(vec + *vecsiz, op, opsize);
     }
 
-    return opsize;
+    *vecin = vec;
+    *vecsiz = cursize;
+    return true;
 }
-
-#include <stdio.h>
 
 /* Perform the mount */
 static error_t do_mount(struct fs *fs, int remount, unsigned long flags,
                         const void *data)
 {
-    error_t err;
-    char   *fsopts;
-    char   *o;
-    size_t  fsopts_len;
-    fsys_t  mounted;
+    error_t   err        = 0;
+    char     *fsopts     = NULL;
+    char     *o          = NULL;
+    char     *mntops     = NULL;
+    size_t    mntops_len = 0;
+    size_t    fsopts_len = 0;
+    fsys_t    mounted;
 
     /* Check if filesystem is already mounted */
     err = fs_fsys(fs, &mounted);
     if(err)
-    {
-        return EBUSY;
-    }
+        return err;
 
-    /* TODO eval arguments */
-
-    /* END TODO */
-    if(remount)
-    {
-        if(mounted == MACH_PORT_NULL)
-        {
-            return EBUSY;
-        }
-    }
-
-    fsopts_len = 0;
-    fsopts = NULL;
 
     for(size_t i = 0;
         i < sizeof(mnt_options_maps) / sizeof(struct mnt_opt_map);
         i++)
-    {
-        size_t tmp;
-        if(mountflags & mnt_options_maps[i].intopt)
-        {
-            tmp = mnt_append_option(&fsopts, mnt_options_maps[i].stropt);
-            if(!tmp)
+        if(flags & mnt_options_maps[i].intopt)
+            if(!mnt_append_option(&fsopts, &fsopts_len, mnt_options_maps[i].stropt))
                 return ENOMEM;
-            fsopts_len += tmp;
+
+
+    if(remount)
+    {
+        if(mounted == MACH_PORT_NULL)
+            return EBUSY;
+
+        err = fsys_set_options(mounted, *fsopts, fsopts_len, 0);
+        if(err)
+            return err;
+    }
+    else
+    {
+        error_t open_err = 0;
+        /* The control port for any active translator we start up.  */
+        fsys_t active_control;
+        file_t node;
+        struct fstype *type = NULL;
+
+        /* The callback to start_translator opens NODE as a side effect.  */
+        error_t open_node (int flags,
+                            mach_port_t *underlying,
+                            mach_msg_type_name_t *underlying_type,
+                            task_t task, void *cookie)
+            {
+                node = file_name_lookup (fs->mntent.mnt_dir, flags | O_NOTRANS, 0666);
+                if (node == MACH_PORT_NULL)
+                {
+                    open_err = errno;
+                    return open_err;
+                }
+
+                *underlying = node;
+                *underlying_type = MACH_MSG_TYPE_COPY_SEND;
+
+                return 0;
         }
+
+        
+
     }
 
-    printf("Opts are: %s\n", fsopts);
-
+    if(fsopts)
+        free(fsopts);
 }
 
-// TODO error to errno
+/* Mounts a filesystem */
 int mount(const char *source, const char *target,
           const char *filesystemtype, unsigned long mountflags,
           const void *data)
@@ -125,10 +152,8 @@ int mount(const char *source, const char *target,
     if ((mountflags & MS_MGC_MSK) == MS_MGC_VAL)
         mountflags &= ~MS_MGC_MSK;
 
-    /* Abs path? Security? TODO */
-
     /* Separate the per-mountpoint flags */
-    if(mountflags & MS_BIND) /* TODO test */
+    if(mountflags & MS_BIND)
         firmlink = 1;
     if(mountflags & MS_REMOUNT)
     	remount = 1;
@@ -205,6 +230,7 @@ end_mount:
 }
 
 
+/* Unmounts a filesystem */
 int umount(const char *target)
 {
     return 0;

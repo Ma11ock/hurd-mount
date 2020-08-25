@@ -1,0 +1,4 @@
+
+
+* Tests
+Due to the compilcated nature of building things in the HURD I could not do unit tests in the traditional way. Instead, I had to copy-paste small snippets of code to test in isolation.

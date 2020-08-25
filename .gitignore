@@ -1,0 +1,12 @@
+*
+
+!libshouldbeinlibc
+!libshouldbeinlibc/mount.c
+!libshouldbeinlibc/mount.h
+!include/
+!include/sys
+!include/sys/mount.h
+
+!tests
+!README.org
+!.gitignore
