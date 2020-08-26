@@ -1,0 +1,14 @@
+#include <gtest/gtest.h>
+
+extern "C"
+{
+#include "../libshouldbeinlibc/mount.c"
+}
+
+TEST(myTest, mtest)
+{
+    char *teststr = NULL;
+    size_t testlen = 0;
+
+    
+}
