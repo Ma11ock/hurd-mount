@@ -1,5 +1,9 @@
 *
 
+*.cpp~
+*.c~
+*.h~
+
 !libshouldbeinlibc
 !libshouldbeinlibc/mount.c
 !libshouldbeinlibc/mount.h

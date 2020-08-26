@@ -12,6 +12,53 @@
 #include <string.h>
 #include <stdbool.h>
 
+#define MNT_NOSUID  0x01
+#define MNT_NODEV   0x02
+#define MNT_NOEXEC  0x04
+#define MNT_NOATIME 0x08
+#define MNT_NODIRATIME  0x10
+#define MNT_RELATIME    0x20
+#define MNT_READONLY    0x40    /* does the user want this to be r/o? */
+
+#define MNT_SHRINKABLE  0x100
+#define MNT_WRITE_HOLD  0x200
+
+#define MNT_SHARED  0x1000  /* if the vfsmount is a shared mount */
+#define MNT_UNBINDABLE  0x2000  /* if the vfsmount is a unbindable mount */
+
+
+/*
+ * MNT_SHARED_MASK is the set of flags that should be cleared when a
+ * mount becomes shared.  Currently, this is only the flag that says a
+ * mount cannot be bind mounted, since this is how we create a mount
+ * that shares events with another mount.  If you add a new MNT_*
+ * flag, consider how it interacts with shared mounts.
+ */
+#define MNT_SHARED_MASK (MNT_UNBINDABLE)
+#define MNT_USER_SETTABLE_MASK  (MNT_NOSUID | MNT_NODEV | MNT_NOEXEC \
+                 | MNT_NOATIME | MNT_NODIRATIME | MNT_RELATIME \
+                 | MNT_READONLY)
+#define MNT_ATIME_MASK (MNT_NOATIME | MNT_NODIRATIME | MNT_RELATIME )
+
+#define MNT_INTERNAL_FLAGS (MNT_SHARED | MNT_WRITE_HOLD | MNT_INTERNAL | \
+                MNT_DOOMED | MNT_SYNC_UMOUNT | MNT_MARKED | \
+                MNT_CURSOR)
+
+#define MNT_INTERNAL    0x4000
+
+#define MNT_LOCK_ATIME      0x040000
+#define MNT_LOCK_NOEXEC     0x080000
+#define MNT_LOCK_NOSUID     0x100000
+#define MNT_LOCK_NODEV      0x200000
+#define MNT_LOCK_READONLY   0x400000
+#define MNT_LOCKED      0x800000
+#define MNT_DOOMED      0x1000000
+#define MNT_SYNC_UMOUNT     0x2000000
+#define MNT_MARKED      0x4000000
+#define MNT_UMOUNT      0x8000000
+#define MNT_CURSOR      0x10000000
+
+
 #define SEARCH_FMTS _HURD "%sfs\0" _HURD "%s"
 
 struct mnt_opt_map
@@ -22,10 +69,10 @@ struct mnt_opt_map
 
 static struct mnt_opt_map mnt_options_maps[] =
 {
-    (struct mnt_opt_map){ MS_RDONLY,     "ro" },
-    (struct mnt_opt_map){ MS_NOATIME,    "noatime" },
-    (struct mnt_opt_map){ MS_NODIRATIME, "nodiratime" },
-    (struct mnt_opt_map){ MS_RELATIME,   "relatime" },
+    (struct mnt_opt_map){ MNT_READONLY,     "ro" },
+    (struct mnt_opt_map){ MNT_NOATIME,       "noatime" },
+    (struct mnt_opt_map){ MNT_NODIRATIME,    "nodiratime" },
+    (struct mnt_opt_map){ MNT_RELATIME,      "relatime" },
 };
 
 /*  Appends value to argz_vec-like string, creates it if it does not exist
@@ -123,10 +170,6 @@ static error_t do_mount(struct fs *fs, int remount, unsigned long flags,
         char  *token_vec  = NULL;
         size_t tvec_size  = 0;
 
-        if(!token)
-            goto no_mnt_opts;
-
-
         while(token)
         {
             if(!mnt_append_option(&token_vec, &tvec_size, token))
@@ -135,7 +178,6 @@ static error_t do_mount(struct fs *fs, int remount, unsigned long flags,
             token = strtok(NULL, delim);
         }
 
-no_mnt_opts:
     }
 
     /* Creates a vector of options to pass to the translator */
@@ -150,10 +192,10 @@ no_mnt_opts:
         filesystem.  */
     for(char *tstr = fsopts; tstr; tstr += strlen(tstr) + 1)
     {
-        if(strcmp(tmp, MNTOPT_NOAUTO) == 0)
+        if(strcmp(tstr, MNTOPT_NOAUTO) == 0)
             if(!mnt_remove_option(&fsopts, &fsopts_len, MNTOPT_NOAUTO))
                 return ENOMEM;
-        if(strcmp(tmp, "bind") == 0)
+        if(strcmp(tstr, "bind") == 0)
         {
             fs->mntent.mnt_type = strdup("firmlink");
             if(!fs->mntent.mnt_type)
@@ -201,9 +243,6 @@ no_mnt_opts:
             return 0;
         }
 
-        /*  Do not fail if there is an active translator if --fake is
-            given. This mimics Linux mount utility more closely which
-            just looks into the mtab file. */
         if(mounted != MACH_PORT_NULL)
         {
             return EBUSY;
@@ -234,7 +273,7 @@ no_mnt_opts:
                     return ENOMEM;
             }
             /*  Now stick the device name on the end as the last argument.  */
-            if(!mnt_append_option(&tmpbuf, &tmpbuf_len, fs->mntnent.mnt_fsname))
+            if(!mnt_append_option(&tmpbuf, &tmpbuf_len, fs->mntent.mnt_fsname))
                 return ENOMEM;
 
             free(fsopts);
@@ -267,14 +306,13 @@ no_mnt_opts:
                                                INIT_PORT_MAX,
                                                ints, INIT_INT_MAX,
                                                geteuid(),
-                                               timeout, &active_control);
+                                               0, &active_control);
             for(i = 0; i < INIT_PORT_MAX; i++)
                 mach_port_deallocate (mach_task_self(), ports[i]);
             for(i = 0; i <= STDERR_FILENO; i++)
                 mach_port_deallocate (mach_task_self(), fds[i]);
         }
-        /* If ERR is due to a problem opening the translated node, we print
-        that name, otherwise, the name of the translator.  */
+
         if(open_err)
             return open_err;
         else if(err)
@@ -282,11 +320,12 @@ no_mnt_opts:
         else
         {
             err = file_set_translator(node, 0, FS_TRANS_SET | FS_TRANS_EXCL, 0,
-                                      0, 0,
-                                      active_control, MACH_MSG_TYPE_COPY_SEND);
+                                      0, 0, active_control,
+                                      MACH_MSG_TYPE_COPY_SEND);
             if(err)
                 fsys_goaway(active_control, FSYS_GOAWAY_FORCE);
             mach_port_deallocate(mach_task_self(), active_control);
+        }
     }
 
 /*
@@ -324,19 +363,19 @@ int mount(const char *source, const char *target,
         flags |= MNT_RELATIME;
 
     /* Separate the per-mountpoint flags */
-    if (mntflags & MS_NOSUID)
+    if (mountflags & MS_NOSUID)
         flags |= MNT_NOSUID;
-    if (mntflags & MS_NODEV)
+    if (mountflags & MS_NODEV)
         flags |= MNT_NODEV;
-    if (mntflags & MS_NOEXEC)
+    if (mountflags & MS_NOEXEC)
         flags |= MNT_NOEXEC;
-    if (mntflags & MS_NOATIME)
+    if (mountflags & MS_NOATIME)
         flags |= MNT_NOATIME;
-    if (mntflags & MS_NODIRATIME)
+    if (mountflags & MS_NODIRATIME)
         flags |= MNT_NODIRATIME;
-    if (mntflags & MS_STRICTATIME)
+    if (mountflags & MS_STRICTATIME)
         flags &= ~(MNT_RELATIME | MNT_NOATIME);
-    if (mntflags & MS_RDONLY)
+    if (mountflags & MS_RDONLY)
         flags |= MNT_READONLY;
 
 
@@ -405,7 +444,7 @@ int mount(const char *source, const char *target,
     	fs = NULL;
 
     if(fs != NULL)
-        err = do_mount(fs, remount, flags, fstype, data);
+        err = do_mount(fs, remount, flags, filesystemtype, data);
 
 end_mount:
     if(err) errno = err;
