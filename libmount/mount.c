@@ -145,8 +145,10 @@ static bool mnt_remove_option(char **vecin, size_t *vecsiz, const char *op)
 }
 
 
+#include <stdio.h>
+
 /* Perform the mount */
-static error_t do_mount(struct fs *fs, int remount, unsigned long flags,
+static error_t do_mount(struct fs *fs, bool remount, unsigned long flags,
                         const char *fstype, const char *data)
 {
     error_t   err        = 0;
@@ -156,6 +158,8 @@ static error_t do_mount(struct fs *fs, int remount, unsigned long flags,
     size_t    fsopts_len = 0;
     fsys_t    mounted;
     const char *delim = ",";
+
+    puts("We got to do_mount");
 
     /* Check if we can determine if the filesystem is mounted */
     err = fs_fsys(fs, &mounted);
@@ -341,8 +345,8 @@ int mount(const char *source, const char *target,
           const char *filesystemtype, unsigned long mountflags,
           const void *data)
 {
-    unsigned int  remount   = 0;
-    unsigned int  firmlink  = 0;
+    bool          remount   = false;
+    bool          firmlink  = false;
     error_t       err       = 0;
     struct fstab *fstab     = NULL;
     struct fs    *fs        = NULL;
@@ -354,9 +358,9 @@ int mount(const char *source, const char *target,
 
     /* Separate the per-mountpoint flags */
     if(mountflags & MS_BIND)
-        firmlink = 1;
+        firmlink = true;
     if(mountflags & MS_REMOUNT)
-    	remount = 1;
+    	remount = true;
 
     /* Default to relatime unless overriden */
     if (!(mountflags & MS_NOATIME))
