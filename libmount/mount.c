@@ -115,7 +115,6 @@ static bool mnt_remove_option(char **vecin, size_t *vecsiz, const char *op)
 {
     size_t cursize = *vecsiz;
     char *vec = *vecin;
-    size_t opsize = strlen(op) + 1;
 
     if(vec == NULL)
         return true;
@@ -339,18 +338,69 @@ static error_t do_mount(struct fs *fs, bool remount, unsigned long flags,
     return err;
 }
 
-/* TODO make sure mountpoint => target, device => source */
 /* Mounts a filesystem */
 int mount(const char *source, const char *target,
           const char *filesystemtype, unsigned long mountflags,
           const void *data)
 {
-    bool          remount   = false;
-    bool          firmlink  = false;
-    error_t       err       = 0;
-    struct fstab *fstab     = NULL;
-    struct fs    *fs        = NULL;
-    unsigned long flags     = 0;
+    bool          remount    = false;
+    bool          firmlink   = false;
+    error_t       err        = 0;
+    struct fstab *fstab      = NULL;
+    struct fs    *fs         = NULL;
+    unsigned long flags      = 0;
+    char         *device;
+    char         *mountpoint;
+    char         *fstype;
+
+    /* TODO nested func */
+
+    if(!filesystemtype || (filesystemtype[0] == '\0'))
+    {
+        err = EINVAL;
+        goto end_mount;
+    }
+    else
+    {
+        fstype = strdup(filesystemtype);
+        if(!fstype)
+        {
+            err = ENOMEM;
+            goto end_mount;
+        }
+    }
+
+    if(!target || (target[0] == '\0'))
+    {
+        err = EINVAL;
+        goto end_mount;
+    }
+    else
+    {
+        mountpoint = strdup(target);
+        if(!mountpoint)
+        {
+            err = ENOMEM;
+            goto end_mount;
+        }
+    }
+
+    if(!source || (source[0] == '\0'))
+    {
+        err = EINVAL;
+        goto end_mount;
+    }
+    else
+    {
+        device = strdup(source);
+        if(!device)
+        {
+            err = ENOMEM;
+            free(mountpoint);
+            goto end_mount;
+        }
+    }
+
 
     /* Discard magic */
     if ((mountflags & MS_MGC_MSK) == MS_MGC_VAL)
@@ -383,69 +433,28 @@ int mount(const char *source, const char *target,
         flags |= MNT_READONLY;
 
 
-    if(source)
+    struct mntent m =
     {
-	    struct mntent m =
-	    {
-	        mnt_fsname: source,
-	        mnt_dir: target,
-	        mnt_type: filesystemtype,
-	        mnt_opts: 0,
-	        mnt_freq: 0,
-	        mnt_passno: 0
-	    };
-	    if(firmlink)
-	    {
-	        m.mnt_type = strdup("firmlink");
-	        if(!m.mnt_type)
-	        {
-	            err = ENOMEM;
-	            goto end_mount;
-	        }
-        }
-
-        err = fstab_add_mntent(fstab, &m, &fs);
-        if(err) goto end_mount;
-
-    }
-    else if(target && remount) /* One argument remount */
+        mnt_fsname: device,
+        mnt_dir: mountpoint,
+        mnt_type: fstype,
+        mnt_opts: 0,
+        mnt_freq: 0,
+        mnt_passno: 0
+    };
+    if(firmlink)
     {
-        struct mntent m =
+        m.mnt_type = strdup("firmlink");
+        if(!m.mnt_type)
         {
-            mnt_fsname: target, /* since we cannot know the device,
-                   		           using target here leads to more
-                                   helpful error messages              */
-            mnt_dir: target,
-            mnt_type: filesystemtype,
-            mnt_opts: 0,
-            mnt_freq: 0,
-            mnt_passno: 0
-        };
-
-        if(firmlink)
-        {
-            m.mnt_type = strdup("firmlink");
-            if(!m.mnt_type)
-            {
-                err = ENOMEM;
-                goto end_mount;
-            }
-        }
-
-        err = fstab_add_mntent(fstab, &m, &fs);
-        if(err) goto end_mount;
-    }
-    else if(source) /* One-argument form */
-    {
-        fs = fstab_find(fstab, target);
-        if(!fs)
-        {
-            err = EINVAL;
+            err = ENOMEM;
             goto end_mount;
         }
     }
-    else
-    	fs = NULL;
+
+    err = fstab_add_mntent(fstab, &m, &fs);
+    if(err)
+        goto end_mount;
 
     if(fs != NULL)
         err = do_mount(fs, remount, flags, filesystemtype, data);
