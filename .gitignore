@@ -1,45 +1,17 @@
-*~
-
-*.d
-*.o
-*.a
-*.so
-*.so.*
-TAGS
-
-autom4te.cache/
-/config.log
-/config.make
-/config.status
-/configure
-/version.h
-/doc/hurd.aux
-/doc/hurd.cp
-/doc/hurd.cps
-/doc/hurd.fn
-/doc/hurd.ky
-/doc/hurd.log
-/doc/hurd.pdf
-/doc/hurd.pg
-/doc/hurd.sc
-/doc/hurd.toc
-/doc/hurd.tp
-/doc/hurd.vr
-
 *
 
 *.cpp~
 *.c~
 *.h~
 
-!libmount/
-!libmount/*
-!libmount/*.c
-!libmount/*.h
-!libmount/Makefile
-!libmount/Makefile
-libmount/*.c~
-libmount/*.h~
+!libsysmount/
+!libsysmount/*
+!libsysmount/*.c
+!libsysmount/*.h
+!libsysmount/Makefile
+!libsysmount/Makefile
+libsysmount/*.c~
+libsysmount/*.h~
 
 
 
