@@ -144,8 +144,8 @@ static error_t do_mount(struct fs *fs, bool remount, char *options,
 
         /* Stick the translator program name in front of the option switches.  */
         ARGZ(insert(&options, &options_len, options, type->program));
+        /* Now stick the device name on the end as the last argument.  */
         ARGZ(add(&options, &options_len, fs->mntent.mnt_fsname));
-
 #undef ARGZ
 
         {
@@ -164,8 +164,23 @@ static error_t do_mount(struct fs *fs, bool remount, char *options,
             ports[INIT_PORT_CRDIR] = getcrdir();
             ports[INIT_PORT_AUTH] = getauth();
 
+
+//            argz_delete(&options, &options_len, "relatime");
+ //           argz_delete(&options, &options_len, "loop");
+
+    //        for(char *tmps = options; tmps; tmps = argz_next(options, options_len, tmps))
+     //       {
+      //          puts(tmps);
+       //     }
+
+            char *tmpops = NULL;
+            size_t tmpops_size = 0;
+
+            argz_create_sep("/hurd/ext2fs,/home/ryan/mytfile", ',', &tmpops, &tmpops_size);
+
+            /* TODO this fails */
             err = fshelp_start_translator_long(open_node, NULL,
-                                               options, options, options_len,
+                                               tmpops, tmpops, tmpops_size,
                                                fds, MACH_MSG_TYPE_COPY_SEND,
                                                STDERR_FILENO + 1,
                                                ports, MACH_MSG_TYPE_COPY_SEND,
@@ -173,6 +188,7 @@ static error_t do_mount(struct fs *fs, bool remount, char *options,
                                                ints, INIT_INT_MAX,
                                                geteuid(),
                                                0, &active_control);
+
             for(i = 0; i < INIT_PORT_MAX; i++)
                 mach_port_deallocate (mach_task_self(), ports[i]);
             for(i = 0; i <= STDERR_FILENO; i++)
@@ -180,11 +196,18 @@ static error_t do_mount(struct fs *fs, bool remount, char *options,
         }
 
         if(open_err)
+        {
+            puts("Open err");
             return open_err;
+        }
         else if(err)
+        {
+            puts("Err");
             return err;
+        }
         else
         {
+            puts("No err");
             err = file_set_translator(node, 0, FS_TRANS_SET | FS_TRANS_EXCL, 0,
                                       0, 0, active_control,
                                       MACH_MSG_TYPE_COPY_SEND);
@@ -412,8 +435,6 @@ int mount(const char *source, const char *target,
         if(fs != NULL)
             err = do_mount(fs, remount, data_ops, data_ops_len, fstype);
 
-        if(data_ops)
-            free(data_ops);
     }
 
 end_mount:
