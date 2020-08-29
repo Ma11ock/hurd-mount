@@ -1,4 +1,4 @@
-
+/* TODO remount does not work yet, further test mount(8) remounting */
 #include <argp.h>
 #include <argz.h>
 #include "../sutils/fstab.h"
@@ -23,6 +23,12 @@ struct mnt_opt_map
     const char   *stropt;
 };
 
+struct umnt_opt_map
+{
+    int     umount_opt;
+    int     fsys_opt;
+};
+
 static struct mnt_opt_map mnt_options_maps[] =
 {
     (struct mnt_opt_map){ MS_RDONLY,        "ro" },
@@ -36,6 +42,12 @@ static struct mnt_opt_map mnt_options_maps[] =
     (struct mnt_opt_map){ MS_NOSUID,        "nosuid" },
 };
 
+static struct umnt_opt_map umnt_options_maps[] =
+{
+    (struct umnt_opt_map){ MNT_FORCE,     FSYS_GOAWAY_FORCE },
+    (struct umnt_opt_map){ UMOUNT_NOSYNC, FSYS_GOAWAY_NOSYNC },
+};
+
 #include <stdio.h>
 
 /* Determing options and pass options string, no more flags or data here */
@@ -44,8 +56,6 @@ static error_t do_mount(struct fs *fs, bool remount, char *options,
                         size_t options_len ,const char *fstype)
 {
     error_t   err         = 0;
-//    char     *fsopts      = NULL;
-//    size_t    fsopts_len  = 0;
     fsys_t    mounted;
 
 
@@ -443,13 +453,116 @@ end_mount:
 }
 
 
+static error_t do_umount(struct fs *fs, int goaway_flags)
+{
+    error_t err = 0;
+    file_t  node;
+
+    node = file_name_lookup(fs->mntent.mnt_dir, O_NOTRANS, 0666);
+    if(node == MACH_PORT_NULL)
+    {
+        goto end_doumount;
+    }
+
+    err = file_set_translator(node, 0, FS_TRANS_SET, goaway_flags, NULL,
+                              0, MACH_PORT_NULL, MACH_MSG_TYPE_COPY_SEND);
+
+    if(err)
+        goto end_doumount;
+
+    if((fs->mntent.mnt_fsname[0] != '\0') &&
+       (strcmp(fs->mntent.mnt_fsname, "none") != 0))
+    {
+        file_t source = file_name_lookup(fs->mntent.mnt_fsname, O_NOTRANS, 0666);
+        if(source == MACH_PORT_NULL)
+            goto end_doumount;
+
+        err = file_set_translator(source, 0, FS_TRANS_SET, goaway_flags,
+                                  NULL, 0, MACH_PORT_NULL,
+                                  MACH_MSG_TYPE_COPY_SEND);
+
+        if(!(goaway_flags & FSYS_GOAWAY_FORCE))
+            err = 0;
+        if(err)
+            goto end_doumount;
+
+        mach_port_deallocate(mach_task_self(), source);
+    }
+
+
+
+end_doumount:
+    return err ? -1 : 0;
+}
+
 /* Unmounts a filesystem */
 int umount(const char *target)
 {
-    return 0;
+    return umount2(target, 0);
 }
 
+/* Unmounts a filesystem with options */
 int umount2(const char *target, int flags)
 {
-    return 0;
+    error_t       err          = 0;
+    char         *mountpoint   = NULL;
+    struct fstab *fstab        = NULL;
+    struct fs    *fs           = NULL;
+    int           goaway_flags = 0;
+
+    if(!target || (target[0] == '\0'))
+    {
+        err = EINVAL;
+        goto end_umount;
+    }
+
+    mountpoint = strdup(target);
+    if(!mountpoint)
+    {
+        err = ENOMEM;
+        goto end_umount;
+    }
+
+    /* Convert Linux umount flags to HURD umount flags */
+    for(size_t i = 0;
+        i < sizeof(umnt_options_maps) / sizeof(struct umnt_opt_map);
+        i++)
+    {
+        if(flags & umnt_options_maps[i].umount_opt)
+            goaway_flags |= umnt_options_maps[i].fsys_opt;
+    }
+
+    struct fstab_argp_params psz =
+    {
+        fstab_path: mountpoint,
+        program_search_fmts: NULL,
+        program_search_fmts_len: 0,
+        do_all: 0,
+        types: NULL,
+        types_len: 0,
+        exclude: NULL,
+        exclude_len: 0,
+        names: NULL,
+        names_len: 0
+    };
+
+    fstab = fstab_argp_create(&psz, NULL, 0);
+    if(!fstab)
+    {
+        err = ENOMEM;
+        goto end_umount;
+    }
+
+    fs = fstab_find_mount(fstab, mountpoint);
+    if(!fs)
+    {
+        err = ENOMEM;
+        goto end_umount;
+    }
+
+    err |= do_umount(fs, goaway_flags);
+
+end_umount:
+    if(err) errno = err;
+    return err ? -1 : 0;
 }

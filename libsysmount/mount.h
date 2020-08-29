@@ -2,6 +2,7 @@
 #define _SYS_MOUNT_H
 
 #include <features.h>
+#include <hurd/fsys.h>
 
 #define MS_RDONLY       1         /* Mount readonly. */
 #define MS_NOSUID       2         /* Ignore suid and sgid bits. */
@@ -59,9 +60,10 @@
 
 /* Possible value for FLAGS parameter of `umount2'.  */
 #define MNT_FORCE 1
-#define MNT_DETACH 2
-#define MNT_EXPIRE 4
-#define UMOUNT_NOFOLLOW 8
+#define MNT_DETACH 2                 /* Ignored */
+#define MNT_EXPIRE 4                 /* Ignored */
+#define UMOUNT_NOFOLLOW 8            /* Ignored */
+#define UMOUNT_NOSYNC 16
 
 __BEGIN_DECLS
 
