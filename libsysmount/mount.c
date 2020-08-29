@@ -1,3 +1,6 @@
+
+#include <argp.h>
+#include <argz.h>
 #include "../sutils/fstab.h"
 #include <errno.h>
 #include <error.h>
@@ -12,53 +15,6 @@
 #include <string.h>
 #include <stdbool.h>
 
-#define MNT_NOSUID  0x01
-#define MNT_NODEV   0x02
-#define MNT_NOEXEC  0x04
-#define MNT_NOATIME 0x08
-#define MNT_NODIRATIME  0x10
-#define MNT_RELATIME    0x20
-#define MNT_READONLY    0x40    /* does the user want this to be r/o? */
-
-#define MNT_SHRINKABLE  0x100
-#define MNT_WRITE_HOLD  0x200
-
-#define MNT_SHARED  0x1000  /* if the vfsmount is a shared mount */
-#define MNT_UNBINDABLE  0x2000  /* if the vfsmount is a unbindable mount */
-
-
-/*
- * MNT_SHARED_MASK is the set of flags that should be cleared when a
- * mount becomes shared.  Currently, this is only the flag that says a
- * mount cannot be bind mounted, since this is how we create a mount
- * that shares events with another mount.  If you add a new MNT_*
- * flag, consider how it interacts with shared mounts.
- */
-#define MNT_SHARED_MASK (MNT_UNBINDABLE)
-#define MNT_USER_SETTABLE_MASK  (MNT_NOSUID | MNT_NODEV | MNT_NOEXEC \
-                 | MNT_NOATIME | MNT_NODIRATIME | MNT_RELATIME \
-                 | MNT_READONLY)
-#define MNT_ATIME_MASK (MNT_NOATIME | MNT_NODIRATIME | MNT_RELATIME )
-
-#define MNT_INTERNAL_FLAGS (MNT_SHARED | MNT_WRITE_HOLD | MNT_INTERNAL | \
-                MNT_DOOMED | MNT_SYNC_UMOUNT | MNT_MARKED | \
-                MNT_CURSOR)
-
-#define MNT_INTERNAL    0x4000
-
-#define MNT_LOCK_ATIME      0x040000
-#define MNT_LOCK_NOEXEC     0x080000
-#define MNT_LOCK_NOSUID     0x100000
-#define MNT_LOCK_NODEV      0x200000
-#define MNT_LOCK_READONLY   0x400000
-#define MNT_LOCKED      0x800000
-#define MNT_DOOMED      0x1000000
-#define MNT_SYNC_UMOUNT     0x2000000
-#define MNT_MARKED      0x4000000
-#define MNT_UMOUNT      0x8000000
-#define MNT_CURSOR      0x10000000
-
-
 #define SEARCH_FMTS _HURD "%sfs\0" _HURD "%s"
 
 struct mnt_opt_map
@@ -69,151 +25,74 @@ struct mnt_opt_map
 
 static struct mnt_opt_map mnt_options_maps[] =
 {
-    (struct mnt_opt_map){ MNT_READONLY,     "ro" },
-    (struct mnt_opt_map){ MNT_NOATIME,       "noatime" },
-    (struct mnt_opt_map){ MNT_NODIRATIME,    "nodiratime" },
-    (struct mnt_opt_map){ MNT_RELATIME,      "relatime" },
+    (struct mnt_opt_map){ MS_RDONLY,        "ro" },
+    (struct mnt_opt_map){ MS_NOATIME,       "noatime" },
+    (struct mnt_opt_map){ MS_NODIRATIME,    "nodiratime" },
+    (struct mnt_opt_map){ MS_RELATIME,      "relatime" },
+    (struct mnt_opt_map){ MS_NOEXEC,        "noexec" },
+    (struct mnt_opt_map){ MS_NOSUID,        "nosuid" },
+    (struct mnt_opt_map){ MS_STRICTATIME,   "strictatime" },
+    (struct mnt_opt_map){ MS_SYNCHRONOUS,   "sync" },
+    (struct mnt_opt_map){ MS_NOSUID,        "nosuid" },
 };
-
-/*  Appends value to argz_vec-like string, creates it if it does not exist
-    Returns true on success,
-    Returns false on memory allocation error */
-static bool mnt_append_option(char **vecin, size_t *vecsiz, const char *op)
-{
-    size_t cursize = *vecsiz;
-    char *vec = *vecin;
-    size_t opsize = strlen(op) + 1;
-
-    if(vec == NULL)
-    {
-        cursize = opsize;
-        vec = strdup(op);
-        if(!vec)
-            return false;
-    }
-    else
-    {
-        cursize += opsize;
-        char *tmp = realloc(vec, cursize * sizeof(*vec));
-        if(!tmp)
-        {
-            free(vec);
-            return false;
-        }
-
-        vec = tmp;
-        memcpy(vec + *vecsiz, op, opsize);
-    }
-
-    *vecin = vec;
-    *vecsiz = cursize;
-    return true;
-}
-
-/*  Remove an option for a vector */
-static bool mnt_remove_option(char **vecin, size_t *vecsiz, const char *op)
-{
-    size_t cursize = *vecsiz;
-    char *vec = *vecin;
-
-    if(vec == NULL)
-        return true;
-    else
-    {
-        char  *new_vec  = NULL;
-        size_t new_size = 0;
-
-        /* Write the strings to the new buffer */
-        for(char *pos = vec; *pos; pos += strlen(pos) + 1)
-        {
-            if(strcmp(pos, op) != 0)
-            {
-                if(!mnt_append_option(&new_vec, &new_size, op))
-                    return false;
-            }
-        }
-
-        free(vec);
-        vec = new_vec;
-        cursize = new_size;
-    }
-
-    *vecsiz = cursize;
-    *vecin = vec;
-    return true;
-}
-
 
 #include <stdio.h>
 
+/* Determing options and pass options string, no more flags or data here */
 /* Perform the mount */
-static error_t do_mount(struct fs *fs, bool remount, unsigned long flags,
-                        const char *fstype, const void *data)
+static error_t do_mount(struct fs *fs, bool remount, char *options,
+                        size_t options_len ,const char *fstype)
 {
-    error_t   err        = 0;
-    char     *fsopts     = NULL;
-    char     *mntops     = NULL;
-    size_t    mntops_len = 0;
-    size_t    fsopts_len = 0;
+    error_t   err         = 0;
+//    char     *fsopts      = NULL;
+//    size_t    fsopts_len  = 0;
     fsys_t    mounted;
-    const char *delim = ",";
 
-    puts("We got to do_mount");
 
     /* Check if we can determine if the filesystem is mounted */
     err = fs_fsys(fs, &mounted);
     if(err)
         return err;
 
-    if(fs->mntent.mnt_opts)
+#define ARGZ(call)              \
+    err = argz_##call;          \
+    if(err)                     \
+        return err;
+
     {
-        /*  TODO test, i cannot figure out if mnt_opts is from fstab (we should ignore)
-            or if it is simply the filesystem's mount options (not ignore) */
-        char  *token      = strtok(fs->mntent.mnt_opts, delim);
-        char  *token_vec  = NULL;
-        size_t tvec_size  = 0;
-
-        while(token)
+        if(fs->mntent.mnt_opts)
         {
-            if(!mnt_append_option(&token_vec, &tvec_size, token))
-                return ENOMEM;
+            ARGZ(add_sep(&options, &options_len, fs->mntent.mnt_opts, ','));
 
-            token = strtok(NULL, delim);
-        }
-
-    }
-
-    /* Creates a vector of options to pass to the translator */
-    for(size_t i = 0;
-        i < sizeof(mnt_options_maps) / sizeof(struct mnt_opt_map);
-        i++)
-        if(flags & mnt_options_maps[i].intopt)
-            if(!mnt_append_option(&fsopts, &fsopts_len, mnt_options_maps[i].stropt))
-                return ENOMEM;
-
-    /*  Remove the `noauto' and `bind' options, since they're for us not the
-        filesystem.  */
-    for(char *tstr = fsopts; tstr; tstr += strlen(tstr) + 1)
-    {
-        if(strcmp(tstr, MNTOPT_NOAUTO) == 0)
-            if(!mnt_remove_option(&fsopts, &fsopts_len, MNTOPT_NOAUTO))
-                return ENOMEM;
-        if(strcmp(tstr, "bind") == 0)
-        {
-            fs->mntent.mnt_type = strdup("firmlink");
-            if(!fs->mntent.mnt_type)
-                return ENOMEM;
-            if(!mnt_remove_option(&fsopts, &fsopts_len, "bind"))
-                return ENOMEM;
+            /* Remove `bind' and  `noauto' options */
+            for(char *curstr = options; curstr;
+                curstr = argz_next(options, options_len, curstr))
+            {
+                if(strcmp(curstr, MNTOPT_NOAUTO) == 0)
+                {
+                    argz_delete(&options, &options_len, MNTOPT_NOAUTO);
+                }
+                else if(strcmp(curstr, "bind") == 0)
+                {
+                    fs->mntent.mnt_type = strdup("firmlink");
+                    if(!fs->mntent.mnt_type)
+                    {
+                        return ENOMEM;
+                    }
+                    argz_delete(&options, &options_len, "bind");
+                }
+            }
         }
     }
+
+    /* TODO convert the list of options into a list of switch arguments? */
 
     if(remount)
     {
         if(mounted == MACH_PORT_NULL)
             return EBUSY;
 
-        err = fsys_set_options(mounted, fsopts, fsopts_len, 0);
+        err = fsys_set_options(mounted, options, options_len, 0);
         if(err)
             return err;
     }
@@ -264,26 +143,10 @@ static error_t do_mount(struct fs *fs, bool remount, unsigned long flags,
             return EFTYPE;
 
         /* Stick the translator program name in front of the option switches.  */
-        {
-            char  *tmpbuf     = strdup(type->program);
-            if(!tmpbuf)
-                return ENOMEM;
-            size_t tmpbuf_len = strlen(tmpbuf) + 1;
+        ARGZ(insert(&options, &options_len, options, type->program));
+        ARGZ(add(&options, &options_len, fs->mntent.mnt_fsname));
 
-            for(char *tstr = fsopts; tstr; tstr += strlen(tstr) + 1)
-            {
-                if(!mnt_append_option(&tmpbuf, &tmpbuf_len, tstr))
-                    return ENOMEM;
-            }
-            /*  Now stick the device name on the end as the last argument.  */
-            if(!mnt_append_option(&tmpbuf, &tmpbuf_len, fs->mntent.mnt_fsname))
-                return ENOMEM;
-
-            free(fsopts);
-            fsopts = tmpbuf;
-            fsopts_len = tmpbuf_len;
-
-        }
+#undef ARGZ
 
         {
             mach_port_t ports[INIT_PORT_MAX];
@@ -302,7 +165,7 @@ static error_t do_mount(struct fs *fs, bool remount, unsigned long flags,
             ports[INIT_PORT_AUTH] = getauth();
 
             err = fshelp_start_translator_long(open_node, NULL,
-                                               fsopts, fsopts, fsopts_len,
+                                               options, options, options_len,
                                                fds, MACH_MSG_TYPE_COPY_SEND,
                                                STDERR_FILENO + 1,
                                                ports, MACH_MSG_TYPE_COPY_SEND,
@@ -365,23 +228,25 @@ int mount(const char *source, const char *target,
 
     /* Default to relatime unless overriden */
     if (!(mountflags & MS_NOATIME))
-        flags |= MNT_RELATIME;
+        flags |= MS_RELATIME;
 
+    /* TODO better system for keeping track of atime values */
     /* Separate the per-mountpoint flags */
     if (mountflags & MS_NOSUID)
-        flags |= MNT_NOSUID;
+        flags |= MS_NOSUID;
     if (mountflags & MS_NODEV)
-        flags |= MNT_NODEV;
+        flags |= MS_NODEV;
     if (mountflags & MS_NOEXEC)
-        flags |= MNT_NOEXEC;
+        flags |= MS_NOEXEC;
     if (mountflags & MS_NOATIME)
-        flags |= MNT_NOATIME;
+        flags |= MS_NOATIME;
     if (mountflags & MS_NODIRATIME)
-        flags |= MNT_NODIRATIME;
+        flags |= MS_NODIRATIME;
     if (mountflags & MS_STRICTATIME)
-        flags &= ~(MNT_RELATIME | MNT_NOATIME);
+        flags &= ~(MS_RELATIME | MS_NOATIME);
     if (mountflags & MS_RDONLY)
-        flags |= MNT_READONLY;
+        flags |= MS_RDONLY;
+
 
     if(!filesystemtype || (filesystemtype[0] == '\0'))
     {
@@ -447,6 +312,28 @@ int mount(const char *source, const char *target,
         }
     }
 
+    {
+        struct fstab_argp_params psz =
+        {
+            fstab_path: device,
+            program_search_fmts: SEARCH_FMTS,
+            program_search_fmts_len: sizeof(SEARCH_FMTS),
+            do_all: 0,
+            types: NULL,
+            types_len: 0,
+            exclude: NULL,
+            exclude_len: 0,
+            names: NULL,
+            names_len: 0
+        };
+
+        fstab = fstab_argp_create(&psz, SEARCH_FMTS, sizeof(SEARCH_FMTS));
+        if(!fstab)
+        {
+            err = EINVAL;
+            goto end_mount;
+        }
+    }
 
     if(device) /* two-argument form */
     {
@@ -472,6 +359,7 @@ int mount(const char *source, const char *target,
         err = fstab_add_mntent(fstab, &m, &fs);
         if(err)
             goto end_mount;
+
     }
     else if(mountpoint) /* One argument form */
     {
@@ -498,8 +386,35 @@ int mount(const char *source, const char *target,
         }
     }
 
-    if(fs != NULL)
-        err = do_mount(fs, remount, flags, fstype, data);
+    {
+        char  *data_ops       = NULL;
+        size_t data_ops_len   = 0;
+
+#define ARGZ(call)              \
+    err = argz_##call;          \
+    if(err)                     \
+        goto end_mount;
+
+        /* TODO this assumes that data is a string, which might not be correct */
+        ARGZ(create_sep((char*)data, ',', &data_ops, &data_ops_len));
+
+        for(size_t i = 0; i < sizeof(mnt_options_maps) / sizeof(struct mnt_opt_map);
+            i++)
+        {
+            if(flags & mnt_options_maps[i].intopt)
+            {
+                ARGZ(add(&data_ops, &data_ops_len, mnt_options_maps[i].stropt));
+            }
+        }
+
+#undef ARGZ
+
+        if(fs != NULL)
+            err = do_mount(fs, remount, data_ops, data_ops_len, fstype);
+
+        if(data_ops)
+            free(data_ops);
+    }
 
 end_mount:
     if(err) errno = err;
