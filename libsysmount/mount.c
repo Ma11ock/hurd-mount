@@ -17,6 +17,11 @@
 
 #define SEARCH_FMTS _HURD "%sfs\0" _HURD "%s"
 
+/* XXX fix libc */
+#undef _PATH_MOUNTED
+#define _PATH_MOUNTED "/etc/mtab"
+
+
 struct mnt_opt_map
 {
     unsigned long intopt;
@@ -452,7 +457,6 @@ end_mount:
     return err ? -1 : 0;
 }
 
-
 static error_t do_umount(struct fs *fs, int goaway_flags)
 {
     error_t err = 0;
@@ -504,22 +508,15 @@ int umount(const char *target)
 /* Unmounts a filesystem with options */
 int umount2(const char *target, int flags)
 {
-    error_t       err          = 0;
-    char         *mountpoint   = NULL;
-    struct fstab *fstab        = NULL;
-    struct fs    *fs           = NULL;
-    int           goaway_flags = 0;
+    error_t       err             = 0;
+    struct fstab *fstab           = NULL;
+    struct fs    *fs              = NULL;
+    int           goaway_flags    = 0;
+    char         *mountpoint_full = NULL;
 
     if(!target || (target[0] == '\0'))
     {
         err = EINVAL;
-        goto end_umount;
-    }
-
-    mountpoint = strdup(target);
-    if(!mountpoint)
-    {
-        err = ENOMEM;
         goto end_umount;
     }
 
@@ -532,9 +529,13 @@ int umount2(const char *target, int flags)
             goaway_flags |= umnt_options_maps[i].fsys_opt;
     }
 
+    mountpoint_full = realpath(target, NULL);
+    if(!mountpoint_full)
+        goto end_umount;
+
     struct fstab_argp_params psz =
     {
-        fstab_path: mountpoint,
+        fstab_path: _PATH_MOUNTED,
         program_search_fmts: NULL,
         program_search_fmts_len: 0,
         do_all: 0,
@@ -553,16 +554,19 @@ int umount2(const char *target, int flags)
         goto end_umount;
     }
 
-    fs = fstab_find_mount(fstab, mountpoint);
+    fs = fstab_find_mount(fstab, mountpoint_full);
     if(!fs)
     {
         err = ENOMEM;
         goto end_umount;
     }
 
+
     err |= do_umount(fs, goaway_flags);
 
 end_umount:
+    if(mountpoint_full)
+        free(mountpoint_full);
     if(err) errno = err;
     return err ? -1 : 0;
 }
