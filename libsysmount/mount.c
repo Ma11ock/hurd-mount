@@ -53,6 +53,7 @@ static struct umnt_opt_map umnt_options_maps[] =
     (struct umnt_opt_map){ UMOUNT_NOSYNC, FSYS_GOAWAY_NOSYNC },
 };
 
+#include <stdio.h>
 
 /* Determing options and pass options string, no more flags or data here */
 /* Perform the mount */
@@ -79,35 +80,24 @@ static error_t do_mount(struct fs *fs, bool remount, char *options,
         {
             ARGZ(add_sep(&options, &options_len, fs->mntent.mnt_opts, ','));
 
-            /* Remove `bind' and  `noauto' options */
-            for(char *curstr = options; curstr;
-                curstr = argz_next(options, options_len, curstr))
-            {
-                if(strcmp(curstr, MNTOPT_NOAUTO) == 0)
-                {
-                    argz_delete(&options, &options_len, MNTOPT_NOAUTO);
-                }
-                else if(strcmp(curstr, "bind") == 0)
-                {
-                    fs->mntent.mnt_type = strdup("firmlink");
-                    if(!fs->mntent.mnt_type)
-                    {
-                        return ENOMEM;
-                    }
-                    argz_delete(&options, &options_len, "bind");
-                }
-            }
         }
     }
 
     if(remount)
     {
+        puts("Remounting...");
         if(mounted == MACH_PORT_NULL)
             return EBUSY;
+        puts("Mach port is not null");
+        for(char *tstr = options; tstr; tstr = argz_next(options, options_len, tstr))
+        {
+            puts(tstr);
+        }
 
         err = fsys_set_options(mounted, options, options_len, 0);
         if(err)
             return err;
+        puts("End remount!");
     }
     else
     {
@@ -285,6 +275,58 @@ int mount(const char *source, const char *target,
     if (mountflags & MS_RDONLY)
         flags |= MS_RDONLY;
 
+#define ARGZ(call)              \
+    err = argz_##call;          \
+    if(err)                     \
+        goto end_mount;
+
+    /* TODO this assumes that data is a string, which might not be correct */
+    ARGZ(create_sep((char*)data, ',', &data_ops, &data_ops_len));
+
+    {
+        /* Remove `bind', `noauto', and `remount' options */
+        bool rm_bind    = false;
+        bool rm_remount = false;
+        bool rm_noauto  = false;
+        for(char *curstr = options; curstr;
+            curstr = argz_next(options, options_len, curstr))
+        {
+            if(strcmp(curstr, MNTOPT_NOAUTO) == 0)
+                rm_noauto = true;
+            else if(strcmp(curstr, "bind") == 0)
+            {
+                fs->mntent.mnt_type = strdup("firmlink");
+                firmlink = true;
+                rm_bind = true;
+                if(!fs->mntent.mnt_type)
+                {
+                    return ENOMEM;
+                }
+            }
+            else if(strcmp(curstr, "remount")
+            {
+                remount = true;
+                rm_remount = true;
+            }
+        }
+        if(rm_bind)
+            argz_delete(&data_ops, &data_ops_len, "bind");
+        if(rm_remount)
+            argz_delete(&data_ops, &data_ops_len, "remount");
+        if(rm_noauto)
+            argz_delete(&data_ops, &data_ops_len, MNTOPT_NOAUTO);
+
+    }
+    for(size_t i = 0; i < sizeof(mnt_options_maps) / sizeof(struct mnt_opt_map);
+        i++)
+    {
+        if(flags & mnt_options_maps[i].intopt)
+        {
+            ARGZ(add(&data_ops, &data_ops_len, mnt_options_maps[i].stropt));
+        }
+    }
+
+#undef ARGZ
 
     if(!filesystemtype || (filesystemtype[0] == '\0'))
     {
@@ -294,7 +336,7 @@ int mount(const char *source, const char *target,
             err = EINVAL;
             goto end_mount;
         }
-        fstype = strdup("auto"); /* Maybe? */
+        fstype = strdup("auto");
         if(!fstype)
         {
             err = ENOMEM;
@@ -430,24 +472,6 @@ int mount(const char *source, const char *target,
         char  *data_ops       = NULL;
         size_t data_ops_len   = 0;
 
-#define ARGZ(call)              \
-    err = argz_##call;          \
-    if(err)                     \
-        goto end_mount;
-
-        /* TODO this assumes that data is a string, which might not be correct */
-        ARGZ(create_sep((char*)data, ',', &data_ops, &data_ops_len));
-
-        for(size_t i = 0; i < sizeof(mnt_options_maps) / sizeof(struct mnt_opt_map);
-            i++)
-        {
-            if(flags & mnt_options_maps[i].intopt)
-            {
-                ARGZ(add(&data_ops, &data_ops_len, mnt_options_maps[i].stropt));
-            }
-        }
-
-#undef ARGZ
 
         if(fs != NULL)
             err = do_mount(fs, remount, data_ops, data_ops_len, fstype);
