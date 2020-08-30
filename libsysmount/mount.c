@@ -238,16 +238,32 @@ int mount(const char *source, const char *target,
           const char *filesystemtype, unsigned long mountflags,
           const void *data)
 {
-    bool          remount     = false;
-    bool          firmlink    = false;
-    error_t       err         = 0;
-    struct fstab *fstab       = NULL;
-    struct fs    *fs          = NULL;
-    unsigned long flags       = 0;
-    char         *device      = NULL;
-    char         *mountpoint  = NULL;
-    char         *fstype      = NULL;
+    bool          remount      = false;
+    bool          firmlink     = false;
+    error_t       err          = 0;
+    struct fstab *fstab        = NULL;
+    struct fs    *fs           = NULL;
+    unsigned long flags        = 0;
+    char         *device       = NULL;
+    char         *mountpoint   = NULL;
+    char         *fstype       = NULL;
+    char         *data_ops     = NULL;
+    size_t        data_ops_len = 0;
+    /* TODO assumes data is a string */
+    const char   *datastr     = (data) ? data : "";
 
+    /*
+    if(data != NULL)
+        datastr = data;
+    else
+    {
+        datastr = strdup("");
+        if(!datastr)
+        {
+            err = ENOMEM;
+            goto end_mount;
+        }
+    }*/
     /* Discard magic */
     if ((mountflags & MS_MGC_MSK) == MS_MGC_VAL)
         mountflags &= ~MS_MGC_MSK;
@@ -281,15 +297,15 @@ int mount(const char *source, const char *target,
         goto end_mount;
 
     /* TODO this assumes that data is a string, which might not be correct */
-    ARGZ(create_sep((char*)data, ',', &data_ops, &data_ops_len));
+    ARGZ(create_sep((char*)datastr, ',', &data_ops, &data_ops_len));
 
     {
         /* Remove `bind', `noauto', and `remount' options */
         bool rm_bind    = false;
         bool rm_remount = false;
         bool rm_noauto  = false;
-        for(char *curstr = options; curstr;
-            curstr = argz_next(options, options_len, curstr))
+        for(char *curstr = data_ops; curstr;
+            curstr = argz_next(data_ops, data_ops_len, curstr))
         {
             if(strcmp(curstr, MNTOPT_NOAUTO) == 0)
                 rm_noauto = true;
@@ -303,7 +319,7 @@ int mount(const char *source, const char *target,
                     return ENOMEM;
                 }
             }
-            else if(strcmp(curstr, "remount")
+            else if(strcmp(curstr, "remount") == 0)
             {
                 remount = true;
                 rm_remount = true;
