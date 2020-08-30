@@ -53,16 +53,16 @@ static struct umnt_opt_map umnt_options_maps[] =
     (struct umnt_opt_map){ UMOUNT_NOSYNC, FSYS_GOAWAY_NOSYNC },
 };
 
-#include <stdio.h>
 
 /* Determing options and pass options string, no more flags or data here */
 /* Perform the mount */
 static error_t do_mount(struct fs *fs, bool remount, char *options,
                         size_t options_len ,const char *fstype)
 {
-    error_t   err         = 0;
+    error_t   err        = 0;
+    char     *fsopts     = NULL;
+    size_t    fsopts_len = 0;
     fsys_t    mounted;
-
 
     /* Check if we can determine if the filesystem is mounted */
     err = fs_fsys(fs, &mounted);
@@ -99,8 +99,6 @@ static error_t do_mount(struct fs *fs, bool remount, char *options,
             }
         }
     }
-
-    /* TODO convert the list of options into a list of switch arguments? */
 
     if(remount)
     {
@@ -157,10 +155,37 @@ static error_t do_mount(struct fs *fs, bool remount, char *options,
         if(type->program == NULL)
             return EFTYPE;
 
+        /* Convert the list of options into a list of switch arguments.  */
+        for(char *tmp = options; tmp; tmp = argz_next(options, options_len, tmp))
+        {
+            if(*tmp == '-') /* Allow letter opts `-o -r,-E', BSD style.  */
+            {
+                ARGZ(add(&fsopts, &fsopts_len, tmp));
+            }
+            /*  Prepend `--' to the option to make a long option switch,
+                e.g. `--ro' or `--rsize=1024'.  */
+            else if((strcmp(tmp, "defaults") != 0) && (strlen(tmp) != 0) &&
+                    (strcmp(tmp, "loop") != 0) && (strcmp(tmp, "exec") != 0))
+
+            {
+                size_t tmparg_len = strlen(tmp) + 3;
+                char *tmparg = malloc(tmparg_len);
+                if(!tmparg)
+                    return ENOMEM;
+                tmparg[tmparg_len - 1] = '\0';
+
+                tmparg[0] = tmparg[1] = '-';
+                memcpy(&tmparg[2], tmp, tmparg_len - 2);
+                ARGZ(add(&fsopts, &fsopts_len, tmparg));
+                free(tmparg);
+            }
+        }
+
         /* Stick the translator program name in front of the option switches.  */
-        ARGZ(insert(&options, &options_len, options, type->program));
+        ARGZ(insert(&fsopts, &fsopts_len, fsopts, type->program));
         /* Now stick the device name on the end as the last argument.  */
-        ARGZ(add(&options, &options_len, fs->mntent.mnt_fsname));
+        ARGZ(add(&fsopts, &fsopts_len, fs->mntent.mnt_fsname));
+
 #undef ARGZ
 
         {
@@ -179,23 +204,8 @@ static error_t do_mount(struct fs *fs, bool remount, char *options,
             ports[INIT_PORT_CRDIR] = getcrdir();
             ports[INIT_PORT_AUTH] = getauth();
 
-
-//            argz_delete(&options, &options_len, "relatime");
- //           argz_delete(&options, &options_len, "loop");
-
-    //        for(char *tmps = options; tmps; tmps = argz_next(options, options_len, tmps))
-     //       {
-      //          puts(tmps);
-       //     }
-
-            char *tmpops = NULL;
-            size_t tmpops_size = 0;
-
-            argz_create_sep("/hurd/ext2fs,/home/ryan/mytfile", ',', &tmpops, &tmpops_size);
-
-            /* TODO this fails */
             err = fshelp_start_translator_long(open_node, NULL,
-                                               tmpops, tmpops, tmpops_size,
+                                               fsopts, fsopts, fsopts_len,
                                                fds, MACH_MSG_TYPE_COPY_SEND,
                                                STDERR_FILENO + 1,
                                                ports, MACH_MSG_TYPE_COPY_SEND,
@@ -211,18 +221,11 @@ static error_t do_mount(struct fs *fs, bool remount, char *options,
         }
 
         if(open_err)
-        {
-            puts("Open err");
             return open_err;
-        }
         else if(err)
-        {
-            puts("Err");
             return err;
-        }
         else
         {
-            puts("No err");
             err = file_set_translator(node, 0, FS_TRANS_SET | FS_TRANS_EXCL, 0,
                                       0, 0, active_control,
                                       MACH_MSG_TYPE_COPY_SEND);
@@ -238,6 +241,7 @@ static error_t do_mount(struct fs *fs, bool remount, char *options,
 */
     return err;
 }
+
 
 /* Mounts a filesystem */
 int mount(const char *source, const char *target,
@@ -263,10 +267,6 @@ int mount(const char *source, const char *target,
         firmlink = true;
     if(mountflags & MS_REMOUNT)
     	remount = true;
-
-    /* Default to relatime unless overriden */
-    if (!(mountflags & MS_NOATIME))
-        flags |= MS_RELATIME;
 
     /* TODO better system for keeping track of atime values */
     /* Separate the per-mountpoint flags */
@@ -354,8 +354,8 @@ int mount(const char *source, const char *target,
         struct fstab_argp_params psz =
         {
             fstab_path: device,
-            program_search_fmts: SEARCH_FMTS,
-            program_search_fmts_len: sizeof(SEARCH_FMTS),
+            program_search_fmts: NULL,
+            program_search_fmts_len: 0,
             do_all: 0,
             types: NULL,
             types_len: 0,
@@ -365,12 +365,14 @@ int mount(const char *source, const char *target,
             names_len: 0
         };
 
+        /* TODO This runs slow! */
         fstab = fstab_argp_create(&psz, SEARCH_FMTS, sizeof(SEARCH_FMTS));
         if(!fstab)
         {
             err = EINVAL;
             goto end_mount;
         }
+
     }
 
     if(device) /* two-argument form */
