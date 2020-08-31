@@ -65,6 +65,8 @@ static error_t do_mount(struct fs *fs, bool remount, char *options,
     size_t    fsopts_len = 0;
     fsys_t    mounted;
 
+    puts("Doing");
+
     /* Check if we can determine if the filesystem is mounted */
     err = fs_fsys(fs, &mounted);
     if(err)
@@ -85,6 +87,22 @@ static error_t do_mount(struct fs *fs, bool remount, char *options,
     if(remount)
     {
         puts("Remounting...");
+        /* Check if the user is just changing the read-write settings */
+        if(options && (options_len == 2))
+        {
+            puts("Toggling");
+            if(strcmp(options, "rw") == 0)
+            {
+                err = fs_set_readonly(fs, FALSE);
+                goto end_domount;
+            }
+            else if(strcmp(options, "ro") == 0)
+            {
+                err = fs_set_readonly(fs, TRUE);
+                goto end_domount;
+            }
+        }
+
         if(mounted == MACH_PORT_NULL)
             return EBUSY;
         puts("Mach port is not null");
@@ -228,6 +246,7 @@ static error_t do_mount(struct fs *fs, bool remount, char *options,
     if(fsopts)
         free(fsopts);
 */
+end_domount:
     return err;
 }
 
@@ -426,6 +445,8 @@ int mount(const char *source, const char *target,
     {
         char         *data_ops     = NULL;
         size_t        data_ops_len = 0;
+        char         *mnt_ops      = NULL;
+        size_t        mnt_ops_len  = 0;
 
 #define ARGZ(call)              \
     err = argz_##call;          \
@@ -437,51 +458,32 @@ int mount(const char *source, const char *target,
 
         {
             /* Remove `bind', `noauto', and `remount' options */
-            bool rm_bind    = false;
-            bool rm_remount = false;
-            bool rm_noauto  = false;
             for(char *curstr = data_ops; curstr;
                 curstr = argz_next(data_ops, data_ops_len, curstr))
             {
-                if(strcmp(curstr, MNTOPT_NOAUTO) == 0)
-                    rm_noauto = true;
-                else if(strcmp(curstr, "bind") == 0)
+                if((strcmp(curstr, MNTOPT_NOAUTO) != 0) &&
+                   (strcmp(curstr, "bind") != 0)        &&
+                   (strcmp(curstr, "remount") != 0))
                 {
-                    fs->mntent.mnt_type = strdup("firmlink");
-                    firmlink = true;
-                    rm_bind = true;
-                    if(!fs->mntent.mnt_type)
-                    {
-                        return ENOMEM;
-                    }
-                }
-                else if(strcmp(curstr, "remount") == 0)
-                {
-                    remount = true;
-                    rm_remount = true;
+                    ARGZ(add(&mnt_ops, &mnt_ops_len, curstr));
                 }
             }
-            if(rm_bind)
-                argz_delete(&data_ops, &data_ops_len, "bind");
-            if(rm_remount)
-                argz_delete(&data_ops, &data_ops_len, "remount");
-            if(rm_noauto)
-                argz_delete(&data_ops, &data_ops_len, MNTOPT_NOAUTO);
 
         }
+        /* Add OR'd flags to option string */
         for(size_t i = 0; i < sizeof(mnt_options_maps) / sizeof(struct mnt_opt_map);
             i++)
         {
             if(flags & mnt_options_maps[i].intopt)
             {
-                ARGZ(add(&data_ops, &data_ops_len, mnt_options_maps[i].stropt));
+                ARGZ(add(&mnt_ops, &mnt_ops_len, mnt_options_maps[i].stropt));
             }
         }
 
 #undef ARGZ
 
         if(fs != NULL)
-            err = do_mount(fs, remount, data_ops, data_ops_len, fstype);
+            err = do_mount(fs, remount, mnt_ops, mnt_ops_len, fstype);
     }
 end_mount:
     if(err) errno = err;
