@@ -1,6 +1,5 @@
 /* TODO remount does not work yet, further test mount(8) remounting */
 /* test mount(2) and umount(2) behaviour on Linux */
-/* get absolute path from relative path) */
 #include <argp.h>
 #include <argz.h>
 #include "../sutils/fstab.h"
@@ -36,7 +35,7 @@ struct umnt_opt_map
     int     fsys_opt;
 };
 
-static struct mnt_opt_map mnt_options_maps[] =
+static const struct mnt_opt_map mnt_options_maps[] =
 {
     { MS_RDONLY,        "ro" },
     { MS_NOATIME,       "noatime" },
@@ -49,7 +48,7 @@ static struct mnt_opt_map mnt_options_maps[] =
     { MS_NOSUID,        "nosuid" },
 };
 
-static struct umnt_opt_map umnt_options_maps[] =
+static const struct umnt_opt_map umnt_options_maps[] =
 {
     { MNT_FORCE,     FSYS_GOAWAY_FORCE },
     { UMOUNT_NOSYNC, FSYS_GOAWAY_NOSYNC },
@@ -59,7 +58,7 @@ static struct umnt_opt_map umnt_options_maps[] =
 /* Determing options and pass options string, no more flags or data here */
 /* Perform the mount */
 static error_t do_mount(struct fs *fs, bool remount, char *options,
-                        size_t options_len ,const char *fstype)
+                        size_t options_len, const char *fstype)
 {
     error_t   err        = 0;
     char     *fsopts     = NULL;
@@ -259,6 +258,8 @@ int mount(const char *source, const char *target,
           const char *filesystemtype, unsigned long mountflags,
           const void *data)
 {
+    /* Remount and firmlink are special because they are options for us and
+       not the filesystem driver */
     bool          remount      = false;
     bool          firmlink     = false;
     error_t       err          = 0;
@@ -280,9 +281,6 @@ int mount(const char *source, const char *target,
         firmlink = true;
     if(mountflags & MS_REMOUNT)
     	remount = true;
-
-    /* TODO better system for keeping track of atime values */
-    /* Separate the per-mountpoint flags */
     if (mountflags & MS_NOSUID)
         flags |= MS_NOSUID;
     if (mountflags & MS_NODEV)
@@ -298,6 +296,7 @@ int mount(const char *source, const char *target,
     if (mountflags & MS_RDONLY)
         flags |= MS_RDONLY;
 
+    /* Check for mount options in data */
     if(strstr(datastr, "remount"))
         remount = true;
     if(strstr(datastr, "bind"))
@@ -371,7 +370,7 @@ int mount(const char *source, const char *target,
     }
 
     {
-        struct fstab_argp_params psz =
+        struct fstab_argp_params fstab_params =
         {
             fstab_path: device,
             program_search_fmts: NULL,
@@ -386,13 +385,12 @@ int mount(const char *source, const char *target,
         };
 
         /* TODO This runs slow! */
-        fstab = fstab_argp_create(&psz, SEARCH_FMTS, sizeof(SEARCH_FMTS));
+        fstab = fstab_argp_create(&fstab_params, SEARCH_FMTS, sizeof(SEARCH_FMTS));
         if(!fstab)
         {
             err = EINVAL;
             goto end_mount;
         }
-
     }
 
     if(device) /* two-argument form */
@@ -445,6 +443,7 @@ int mount(const char *source, const char *target,
             }
         }
     }
+
     {
         char         *data_ops     = NULL;
         size_t        data_ops_len = 0;
@@ -583,7 +582,7 @@ int umount2(const char *target, int flags)
     if(!mountpoint_full)
         goto end_umount;
 
-    struct fstab_argp_params psz =
+    struct fstab_argp_params fstab_params =
     {
         fstab_path: _PATH_MOUNTED,
         program_search_fmts: NULL,
@@ -597,7 +596,7 @@ int umount2(const char *target, int flags)
         names_len: 0
     };
 
-    fstab = fstab_argp_create(&psz, NULL, 0);
+    fstab = fstab_argp_create(&fstab_params, NULL, 0);
     if(!fstab)
     {
         err = ENOMEM;
