@@ -296,6 +296,7 @@ int mount(const char *source, const char *target,
             err = ENOMEM;
             goto end_mount;
         }
+
     }
     else
     {
