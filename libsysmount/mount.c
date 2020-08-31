@@ -70,12 +70,12 @@ static error_t do_mount(struct fs *fs, bool remount, char *options,
     /* Check if we can determine if the filesystem is mounted */
     err = fs_fsys(fs, &mounted);
     if(err)
-        return err;
+        goto end_domount;
 
 #define ARGZ(call)              \
     err = argz_##call;          \
     if(err)                     \
-        return err;
+        goto end_domount;
 
     {
         if(fs->mntent.mnt_opts)
@@ -104,7 +104,10 @@ static error_t do_mount(struct fs *fs, bool remount, char *options,
         }
 
         if(mounted == MACH_PORT_NULL)
-            return EBUSY;
+        {
+            err = EBUSY;
+            goto end_domount;
+        }
         puts("Mach port is not null");
         for(char *tstr = options; tstr; tstr = argz_next(options, options_len, tstr))
         {
@@ -113,7 +116,7 @@ static error_t do_mount(struct fs *fs, bool remount, char *options,
 
         err = fsys_set_options(mounted, options, options_len, 0);
         if(err)
-            return err;
+            goto end_domount;
         puts("End remount!");
     }
     else
@@ -147,20 +150,25 @@ static error_t do_mount(struct fs *fs, bool remount, char *options,
 
         if(mounted != MACH_PORT_NULL)
         {
-            return EBUSY;
+            err = EBUSY;
+            goto end_domount;
         }
 
         fs->mntent.mnt_type = strdup(fstype);
         if(!fs->mntent.mnt_type)
         {
-            return ENOMEM;
+            err = ENOMEM;
+            goto end_domount;
         }
 
         err = fs_type(fs, &type);
         if(err)
-            return err;
+            goto end_domount;
         if(type->program == NULL)
-            return EFTYPE;
+        {
+            err = EFTYPE;
+            goto end_domount;
+        }
 
         /* Convert the list of options into a list of switch arguments.  */
         for(char *tmp = options; tmp; tmp = argz_next(options, options_len, tmp))
@@ -178,7 +186,10 @@ static error_t do_mount(struct fs *fs, bool remount, char *options,
                 size_t tmparg_len = strlen(tmp) + 3;
                 char *tmparg = malloc(tmparg_len);
                 if(!tmparg)
-                    return ENOMEM;
+                {
+                    err = ENOMEM;
+                    goto end_domount;
+                }
                 tmparg[tmparg_len - 1] = '\0';
 
                 tmparg[0] = tmparg[1] = '-';
@@ -228,9 +239,12 @@ static error_t do_mount(struct fs *fs, bool remount, char *options,
         }
 
         if(open_err)
-            return open_err;
+        {
+            err = open_err;
+            goto end_domount;
+        }
         else if(err)
-            return err;
+            goto end_domount;
         else
         {
             err = file_set_translator(node, 0, FS_TRANS_SET | FS_TRANS_EXCL, 0,
@@ -242,10 +256,6 @@ static error_t do_mount(struct fs *fs, bool remount, char *options,
         }
     }
 
-/*
-    if(fsopts)
-        free(fsopts);
-*/
 end_domount:
     return err;
 }
