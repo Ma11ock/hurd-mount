@@ -1,4 +1,6 @@
 /* TODO remount does not work yet, further test mount(8) remounting */
+/* test mount(2) and umount(2) behaviour on Linux */
+/* get absolute path from relative path) */
 #include <argp.h>
 #include <argz.h>
 #include "../sutils/fstab.h"
@@ -36,24 +38,23 @@ struct umnt_opt_map
 
 static struct mnt_opt_map mnt_options_maps[] =
 {
-    (struct mnt_opt_map){ MS_RDONLY,        "ro" },
-    (struct mnt_opt_map){ MS_NOATIME,       "noatime" },
-    (struct mnt_opt_map){ MS_NODIRATIME,    "nodiratime" },
-    (struct mnt_opt_map){ MS_RELATIME,      "relatime" },
-    (struct mnt_opt_map){ MS_NOEXEC,        "noexec" },
-    (struct mnt_opt_map){ MS_NOSUID,        "nosuid" },
-    (struct mnt_opt_map){ MS_STRICTATIME,   "strictatime" },
-    (struct mnt_opt_map){ MS_SYNCHRONOUS,   "sync" },
-    (struct mnt_opt_map){ MS_NOSUID,        "nosuid" },
+    { MS_RDONLY,        "ro" },
+    { MS_NOATIME,       "noatime" },
+    { MS_NODIRATIME,    "nodiratime" },
+    { MS_RELATIME,      "relatime" },
+    { MS_NOEXEC,        "noexec" },
+    { MS_NOSUID,        "nosuid" },
+    { MS_STRICTATIME,   "strictatime" },
+    { MS_SYNCHRONOUS,   "sync" },
+    { MS_NOSUID,        "nosuid" },
 };
 
 static struct umnt_opt_map umnt_options_maps[] =
 {
-    (struct umnt_opt_map){ MNT_FORCE,     FSYS_GOAWAY_FORCE },
-    (struct umnt_opt_map){ UMOUNT_NOSYNC, FSYS_GOAWAY_NOSYNC },
+    { MNT_FORCE,     FSYS_GOAWAY_FORCE },
+    { UMOUNT_NOSYNC, FSYS_GOAWAY_NOSYNC },
 };
 
-#include <stdio.h>
 
 /* Determing options and pass options string, no more flags or data here */
 /* Perform the mount */
@@ -64,8 +65,6 @@ static error_t do_mount(struct fs *fs, bool remount, char *options,
     char     *fsopts     = NULL;
     size_t    fsopts_len = 0;
     fsys_t    mounted;
-
-    puts("Doing");
 
     /* Check if we can determine if the filesystem is mounted */
     err = fs_fsys(fs, &mounted);
@@ -86,11 +85,9 @@ static error_t do_mount(struct fs *fs, bool remount, char *options,
 
     if(remount)
     {
-        puts("Remounting...");
         /* Check if the user is just changing the read-write settings */
         if(options && (options_len == 2))
         {
-            puts("Toggling");
             if(strcmp(options, "rw") == 0)
             {
                 err = fs_set_readonly(fs, FALSE);
@@ -108,16 +105,10 @@ static error_t do_mount(struct fs *fs, bool remount, char *options,
             err = EBUSY;
             goto end_domount;
         }
-        puts("Mach port is not null");
-        for(char *tstr = options; tstr; tstr = argz_next(options, options_len, tstr))
-        {
-            puts(tstr);
-        }
 
         err = fsys_set_options(mounted, options, options_len, 0);
         if(err)
             goto end_domount;
-        puts("End remount!");
     }
     else
     {
@@ -257,6 +248,8 @@ static error_t do_mount(struct fs *fs, bool remount, char *options,
     }
 
 end_domount:
+    if(fsopts)
+        free(fsopts);
     return err;
 }
 
@@ -494,14 +487,27 @@ int mount(const char *source, const char *target,
 
         if(fs != NULL)
             err = do_mount(fs, remount, mnt_ops, mnt_ops_len, fstype);
+
+        if(data_ops)
+            free(data_ops);
+        if(mnt_ops)
+            free(mnt_ops);
     }
 end_mount:
+    if(device)
+        free(device);
+    if(mountpoint)
+        free(mountpoint);
+    if(fstype)
+        free(fstype);
+
     if(err) errno = err;
     return err ? -1 : 0;
 }
 
 static error_t do_umount(struct fs *fs, int goaway_flags)
 {
+
     error_t err = 0;
     file_t  node;
 
@@ -516,6 +522,8 @@ static error_t do_umount(struct fs *fs, int goaway_flags)
 
     if(err)
         goto end_doumount;
+
+
 
     if((fs->mntent.mnt_fsname[0] != '\0') &&
        (strcmp(fs->mntent.mnt_fsname, "none") != 0))
@@ -534,9 +542,8 @@ static error_t do_umount(struct fs *fs, int goaway_flags)
             goto end_doumount;
 
         mach_port_deallocate(mach_task_self(), source);
+        return 0;
     }
-
-
 
 end_doumount:
     return err ? -1 : 0;
@@ -603,8 +610,6 @@ int umount2(const char *target, int flags)
         err = ENOMEM;
         goto end_umount;
     }
-
-
 
     err |= do_umount(fs, goaway_flags);
 
