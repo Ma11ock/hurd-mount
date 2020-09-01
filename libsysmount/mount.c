@@ -66,6 +66,7 @@ static error_t do_mount(struct fs *fs, bool remount, char *options,
     fsys_t    mounted;
 
     /* Check if we can determine if the filesystem is mounted */
+    /* TODO this sets errno to EPERM, and if root sets it to 1073741830 */
     err = fs_fsys(fs, &mounted);
     if(err)
         goto end_domount;
