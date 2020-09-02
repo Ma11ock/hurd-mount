@@ -36,34 +36,13 @@
              | MS_LAZYTIME)
 
 
-/* Magic mount flag number. Has to be or-ed to the flag values.  */
-
-#define MS_MGC_VAL 0xc0ed0000   /* Magic flag number to indicate "new" flags */
-#define MS_MGC_MSK 0xffff0000   /* Magic flag number mask */
-
-#define BLKROSET   _IO(0x12, 93) /* Set device read-only (0 = read-write).  */
-#define BLKROGET   _IO(0x12, 94) /* Get read-only status (0 = read_write).  */
-#define BLKRRPART  _IO(0x12, 95) /* Re-read partition table.  */
-#define BLKGETSIZE _IO(0x12, 96) /* Return device size.  */
-#define BLKFLSBUF  _IO(0x12, 97) /* Flush buffer cache.  */
-#define BLKRASET   _IO(0x12, 98) /* Set read ahead for block device.  */
-#define BLKRAGET   _IO(0x12, 99) /* Get current read ahead setting.  */
-#define BLKFRASET  _IO(0x12,100) /* Set filesystem read-ahead.  */
-#define BLKFRAGET  _IO(0x12,101) /* Get filesystem read-ahead.  */
-#define BLKSECTSET _IO(0x12,102) /* Set max sectors per request.  */
-#define BLKSECTGET _IO(0x12,103) /* Get max sectors per request.  */
-#define BLKSSZGET  _IO(0x12,104) /* Get block device sector size.  */
-#define BLKBSZGET  _IOR(0x12,112,size_t)
-#define BLKBSZSET  _IOW(0x12,113,size_t)
-#define BLKGETSIZE64 _IOR(0x12,114,size_t) /* return device size.  */
-
-
 /* Possible value for FLAGS parameter of `umount2'.  */
-#define MNT_FORCE 1
+/* See `hurd_types.h' for more */
+#define MNT_FORCE FSYS_GOAWAY_FORCE
 #define MNT_DETACH 2                 /* Ignored */
 #define MNT_EXPIRE 4                 /* Ignored */
 #define UMOUNT_NOFOLLOW 8            /* Ignored */
-#define UMOUNT_NOSYNC 16
+#define UMOUNT_NOSYNC FSYS_GOAWAY_NOSYNC
 
 __BEGIN_DECLS
 

@@ -29,12 +29,6 @@ struct mnt_opt_map
     const char   *stropt;
 };
 
-struct umnt_opt_map
-{
-    int     umount_opt;
-    int     fsys_opt;
-};
-
 static const struct mnt_opt_map mnt_options_maps[] =
 {
     { MS_RDONLY,        "ro" },
@@ -47,13 +41,6 @@ static const struct mnt_opt_map mnt_options_maps[] =
     { MS_SYNCHRONOUS,   "sync" },
     { MS_NOSUID,        "nosuid" },
 };
-
-static const struct umnt_opt_map umnt_options_maps[] =
-{
-    { MNT_FORCE,     FSYS_GOAWAY_FORCE },
-    { UMOUNT_NOSYNC, FSYS_GOAWAY_NOSYNC },
-};
-
 
 /* Determing options and pass options string, no more flags or data here */
 /* Perform the mount */
@@ -272,10 +259,6 @@ int mount(const char *source, const char *target,
     char         *fstype       = NULL;
     /* TODO assumes data is a string */
     const char   *datastr      = (data) ? data : "";
-
-    /* Discard magic */
-    if ((mountflags & MS_MGC_MSK) == MS_MGC_VAL)
-        mountflags &= ~MS_MGC_MSK;
 
     /* Separate the per-mountpoint flags */
     if(mountflags & MS_BIND)
@@ -561,22 +544,12 @@ int umount2(const char *target, int flags)
     error_t       err             = 0;
     struct fstab *fstab           = NULL;
     struct fs    *fs              = NULL;
-    int           goaway_flags    = 0;
     char         *mountpoint_full = NULL;
 
     if(!target || (target[0] == '\0'))
     {
         err = EINVAL;
         goto end_umount;
-    }
-
-    /* Convert Linux umount flags to HURD umount flags */
-    for(size_t i = 0;
-        i < sizeof(umnt_options_maps) / sizeof(struct umnt_opt_map);
-        i++)
-    {
-        if(flags & umnt_options_maps[i].umount_opt)
-            goaway_flags |= umnt_options_maps[i].fsys_opt;
     }
 
     mountpoint_full = realpath(target, NULL);
@@ -611,7 +584,7 @@ int umount2(const char *target, int flags)
         goto end_umount;
     }
 
-    err |= do_umount(fs, goaway_flags);
+    err |= do_umount(fs, flags);
 
 end_umount:
     if(mountpoint_full)
