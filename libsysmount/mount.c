@@ -42,7 +42,53 @@ static const struct mnt_opt_map mnt_options_maps[] =
     { MS_NOSUID,        "nosuid" },
 };
 
-/* Determing options and pass options string, no more flags or data here */
+
+/* Gets mounted filesystem from path (can be relative) and stores into fs.
+   Returns a pointer to a fs struct on success,
+   Returns NULL and sets `err' on failure  */
+static struct fs *get_mounted_fs(const char *path, error_t *err)
+{
+    struct fstab  *fstab           = NULL;
+    struct fs     *fs              = NULL;
+    char          *names           = NULL;
+    size_t         names_len       = 0;
+
+
+    argz_create_sep(path, ',', &names, &names_len);
+    if(!names)
+    {
+        *err = ENOMEM;
+        goto end_get_mnted_fs;
+    }
+
+    struct fstab_argp_params fstab_params =
+    {
+        fstab_path: _PATH_MOUNTED,
+        program_search_fmts: NULL,
+        program_search_fmts_len: 0,
+        do_all: 0,
+        types: NULL,
+        types_len: 0,
+        exclude: NULL,
+        exclude_len: 0,
+        names: NULL,
+        names_len: 0
+    };
+    fstab = fstab_argp_create(&fstab_params, NULL, 0);
+    if(!fstab)
+    {
+        *err = errno;
+        goto end_get_mnted_fs;
+    }
+
+    fs = fstab_find_mount(fstab, path);
+    if(!fs)
+        *err = errno;
+
+end_get_mnted_fs:
+    return fs;
+}
+
 /* Perform the mount */
 static error_t do_mount(struct fs *fs, bool remount, char *options,
                         size_t options_len, const char *fstype)
@@ -63,39 +109,65 @@ static error_t do_mount(struct fs *fs, bool remount, char *options,
     if(err)                     \
         goto end_domount;
 
+    /* Convert the list of options into a list of switch arguments.  */
+    for(char *tmp = options; tmp; tmp = argz_next(options, options_len, tmp))
     {
-        if(fs->mntent.mnt_opts)
+        if(*tmp == '-') /* Allow letter opts `-o -r,-E', BSD style.  */
         {
-            ARGZ(add_sep(&options, &options_len, fs->mntent.mnt_opts, ','));
+            ARGZ(add(&fsopts, &fsopts_len, tmp));
+        }
+        /*  Prepend `--' to the option to make a long option switch,
+            e.g. `--ro' or `--rsize=1024'.  */
+        else if((strcmp(tmp, "defaults") != 0) && (strlen(tmp) != 0) &&
+                (strcmp(tmp, "loop") != 0) && (strcmp(tmp, "exec") != 0))
+
+        {
+            size_t tmparg_len = strlen(tmp) + 3;
+            char *tmparg = malloc(tmparg_len);
+            if(!tmparg)
+            {
+                err = ENOMEM;
+                goto end_domount;
+            }
+            tmparg[tmparg_len - 1] = '\0';
+
+            tmparg[0] = tmparg[1] = '-';
+            memcpy(&tmparg[2], tmp, tmparg_len - 2);
+            ARGZ(add(&fsopts, &fsopts_len, tmparg));
+            free(tmparg);
         }
     }
 
-    if(remount)
+    if(fs->mntent.mnt_opts)
     {
-        /* Check if the user is just changing the read-write settings */
-        if(options && (options_len == 2))
-        {
-            if(strcmp(options, "rw") == 0)
-            {
-                err = fs_set_readonly(fs, FALSE);
-                goto end_domount;
-            }
-            else if(strcmp(options, "ro") == 0)
-            {
-                err = fs_set_readonly(fs, TRUE);
-                goto end_domount;
-            }
-        }
+        ARGZ(add_sep(&options, &options_len, fs->mntent.mnt_opts, ','));
+    }
 
-        if(mounted == MACH_PORT_NULL)
+    if(remount && fsopts)
+    {
+        file_t node = file_name_lookup(fs->mntent.mnt_dir, O_NOTRANS, 0666);
+        if(node == MACH_PORT_NULL)
         {
             err = EBUSY;
             goto end_domount;
         }
 
-        err = fsys_set_options(mounted, options, options_len, 0);
-        if(err)
-            goto end_domount;
+        /* Check if the user is just changing the read-write settings */
+        /* TODO properly test this */
+        if(strcmp(fsopts, "--rw") == 0)
+        {
+            puts("Setting to rw");
+            err = fs_set_readonly(fs, FALSE);
+        }
+        else if(strcmp(fsopts, "--ro") == 0)
+            err = fs_set_readonly(fs, TRUE);
+        else
+        {
+            err = fsys_set_options(node, fsopts, fsopts_len, 0);
+        }
+
+//        mach_port_deallocate(mach_task_self(), node);
+        goto end_domount;
     }
     else
     {
@@ -148,34 +220,6 @@ static error_t do_mount(struct fs *fs, bool remount, char *options,
             goto end_domount;
         }
 
-        /* Convert the list of options into a list of switch arguments.  */
-        for(char *tmp = options; tmp; tmp = argz_next(options, options_len, tmp))
-        {
-            if(*tmp == '-') /* Allow letter opts `-o -r,-E', BSD style.  */
-            {
-                ARGZ(add(&fsopts, &fsopts_len, tmp));
-            }
-            /*  Prepend `--' to the option to make a long option switch,
-                e.g. `--ro' or `--rsize=1024'.  */
-            else if((strcmp(tmp, "defaults") != 0) && (strlen(tmp) != 0) &&
-                    (strcmp(tmp, "loop") != 0) && (strcmp(tmp, "exec") != 0))
-
-            {
-                size_t tmparg_len = strlen(tmp) + 3;
-                char *tmparg = malloc(tmparg_len);
-                if(!tmparg)
-                {
-                    err = ENOMEM;
-                    goto end_domount;
-                }
-                tmparg[tmparg_len - 1] = '\0';
-
-                tmparg[0] = tmparg[1] = '-';
-                memcpy(&tmparg[2], tmp, tmparg_len - 2);
-                ARGZ(add(&fsopts, &fsopts_len, tmparg));
-                free(tmparg);
-            }
-        }
 
         /* Stick the translator program name in front of the option switches.  */
         ARGZ(insert(&fsopts, &fsopts_len, fsopts, type->program));
@@ -240,7 +284,6 @@ end_domount:
     return err;
 }
 
-
 /* Mounts a filesystem */
 int mount(const char *source, const char *target,
           const char *filesystemtype, unsigned long mountflags,
@@ -248,17 +291,18 @@ int mount(const char *source, const char *target,
 {
     /* Remount and firmlink are special because they are options for us and
        not the filesystem driver */
-    bool          remount      = false;
-    bool          firmlink     = false;
-    error_t       err          = 0;
-    struct fstab *fstab        = NULL;
-    struct fs    *fs           = NULL;
-    unsigned long flags        = 0;
-    char         *device       = NULL;
-    char         *mountpoint   = NULL;
-    char         *fstype       = NULL;
+    bool          remount    = false;
+    bool          firmlink   = false;
+    error_t       err        = 0;
+    struct fs    *fs         = NULL;
+    unsigned long flags      = 0;
+    /* Dynamic copies of `source', `target', and `filesystemtype'
+       respectively */
+    char         *device     = NULL;
+    char         *mountpoint = NULL;
+    char         *fstype     = NULL;
     /* TODO assumes data is a string */
-    const char   *datastr      = (data) ? data : "";
+    const char   *datastr    = (data) ? data : "";
 
     /* Separate the per-mountpoint flags */
     if(mountflags & MS_BIND)
@@ -353,7 +397,10 @@ int mount(const char *source, const char *target,
         }
     }
 
+    if(device) /* two-argument form */
     {
+        struct fstab *fstab = NULL;
+
         struct fstab_argp_params fstab_params =
         {
             fstab_path: device,
@@ -375,10 +422,7 @@ int mount(const char *source, const char *target,
             err = EINVAL;
             goto end_mount;
         }
-    }
 
-    if(device) /* two-argument form */
-    {
         struct mntent m =
         {
             mnt_fsname: device,
@@ -403,28 +447,12 @@ int mount(const char *source, const char *target,
             goto end_mount;
 
     }
-    else if(mountpoint) /* One argument form */
+    else if(mountpoint) /* One argument form (remount) */
     {
-        struct mntent m =
+        fs = get_mounted_fs(mountpoint, &err);
+        if(err || !fs)
         {
-            mnt_fsname: mountpoint, /*  Since we cannot know the device using
-                                        mountpoint here leads to more helpful
-                                        error messages */
-            mnt_dir: mountpoint,
-            mnt_type: fstype, /* TODO determine fstype? can this be NULL? */
-            mnt_opts: 0,
-            mnt_freq: 0,
-            mnt_passno: 0
-        };
-
-        if(firmlink)
-        {
-            m.mnt_type = strdup("firmlink");
-            if(!m.mnt_type)
-            {
-                err = ENOMEM;
-                goto end_mount;
-            }
+            goto end_mount;
         }
     }
 
@@ -467,14 +495,13 @@ int mount(const char *source, const char *target,
         }
 
 #undef ARGZ
-
-        if(fs != NULL)
+        if(fs)
             err = do_mount(fs, remount, mnt_ops, mnt_ops_len, fstype);
 
         if(data_ops)
             free(data_ops);
-        if(mnt_ops)
-            free(mnt_ops);
+//        if(mnt_ops)
+//            free(mnt_ops);
     }
 end_mount:
     if(device)
@@ -538,13 +565,13 @@ int umount(const char *target)
     return umount2(target, 0);
 }
 
+#include <stdio.h>
+
 /* Unmounts a filesystem with options */
 int umount2(const char *target, int flags)
 {
-    error_t       err             = 0;
-    struct fstab *fstab           = NULL;
-    struct fs    *fs              = NULL;
-    char         *mountpoint_full = NULL;
+    error_t    err  = 0;
+    struct fs *fs   = NULL;
 
     if(!target || (target[0] == '\0'))
     {
@@ -552,43 +579,12 @@ int umount2(const char *target, int flags)
         goto end_umount;
     }
 
-    mountpoint_full = realpath(target, NULL);
-    if(!mountpoint_full)
+    fs = get_mounted_fs(target, &err);
+    if(err || !fs)
         goto end_umount;
-
-    struct fstab_argp_params fstab_params =
-    {
-        fstab_path: _PATH_MOUNTED,
-        program_search_fmts: NULL,
-        program_search_fmts_len: 0,
-        do_all: 0,
-        types: NULL,
-        types_len: 0,
-        exclude: NULL,
-        exclude_len: 0,
-        names: NULL,
-        names_len: 0
-    };
-
-    fstab = fstab_argp_create(&fstab_params, NULL, 0);
-    if(!fstab)
-    {
-        err = ENOMEM;
-        goto end_umount;
-    }
-
-    fs = fstab_find_mount(fstab, mountpoint_full);
-    if(!fs)
-    {
-        err = ENOMEM;
-        goto end_umount;
-    }
 
     err |= do_umount(fs, flags);
-
 end_umount:
-    if(mountpoint_full)
-        free(mountpoint_full);
     if(err) errno = err;
     return err ? -1 : 0;
 }

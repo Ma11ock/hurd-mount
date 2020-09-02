@@ -1,2 +1,8 @@
-* Tests
-Due to the compilcated nature of building things in the HURD I could not do unit tests in the traditional way. Instead, I had to copy-paste small snippets of code to test in isolation.
+* TODO
+** mount(8)
+- [ ] bug where every time it tries to remount the filesystem is always MACH_PORT_NULL
+- [ ] mount -v does nothing
+** mount(2)
+- [ ] because the code mostly comes from mount(8) the remount bug is present here as well
+
+
