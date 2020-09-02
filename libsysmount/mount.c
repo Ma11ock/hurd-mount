@@ -145,29 +145,24 @@ static error_t do_mount(struct fs *fs, bool remount, char *options,
 
     if(remount && fsopts)
     {
-        file_t node = file_name_lookup(fs->mntent.mnt_dir, O_NOTRANS, 0666);
-        if(node == MACH_PORT_NULL)
+        /* TODO remounting does not work, returns 'operation not supported'
+           when performed on  `fs' file_t, `mounted' is always
+           MACH_PORT_NULL */
+
+        if(mounted == MACH_PORT_NULL)
         {
             err = EBUSY;
             goto end_domount;
         }
 
+
         /* Check if the user is just changing the read-write settings */
-        /* TODO properly test this */
         if(strcmp(fsopts, "--rw") == 0)
-        {
-            puts("Setting to rw");
             err = fs_set_readonly(fs, FALSE);
-        }
         else if(strcmp(fsopts, "--ro") == 0)
             err = fs_set_readonly(fs, TRUE);
         else
-        {
-            err = fsys_set_options(node, fsopts, fsopts_len, 0);
-        }
-
-//        mach_port_deallocate(mach_task_self(), node);
-        goto end_domount;
+            err = fsys_set_options(mounted, fsopts, fsopts_len, 0);
     }
     else
     {
@@ -255,9 +250,9 @@ static error_t do_mount(struct fs *fs, bool remount, char *options,
                                                0, &active_control);
 
             for(i = 0; i < INIT_PORT_MAX; i++)
-                mach_port_deallocate (mach_task_self(), ports[i]);
+                mach_port_deallocate(mach_task_self(), ports[i]);
             for(i = 0; i <= STDERR_FILENO; i++)
-                mach_port_deallocate (mach_task_self(), fds[i]);
+                mach_port_deallocate(mach_task_self(), fds[i]);
         }
 
         if(open_err)
@@ -500,8 +495,6 @@ int mount(const char *source, const char *target,
 
         if(data_ops)
             free(data_ops);
-//        if(mnt_ops)
-//            free(mnt_ops);
     }
 end_mount:
     if(device)
@@ -518,10 +511,8 @@ end_mount:
 static error_t do_umount(struct fs *fs, int goaway_flags)
 {
 
-    error_t err = 0;
-    file_t  node;
-
-    node = file_name_lookup(fs->mntent.mnt_dir, O_NOTRANS, 0666);
+    error_t err  = 0;
+    file_t  node = file_name_lookup(fs->mntent.mnt_dir, O_NOTRANS, 0666);
     if(node == MACH_PORT_NULL)
     {
         goto end_doumount;
@@ -530,13 +521,8 @@ static error_t do_umount(struct fs *fs, int goaway_flags)
     err = file_set_translator(node, 0, FS_TRANS_SET, goaway_flags, NULL,
                               0, MACH_PORT_NULL, MACH_MSG_TYPE_COPY_SEND);
 
-    if(err)
-        goto end_doumount;
-
-
-
-    if((fs->mntent.mnt_fsname[0] != '\0') &&
-       (strcmp(fs->mntent.mnt_fsname, "none") != 0))
+    if(!err && ((fs->mntent.mnt_fsname[0] != '\0') &&
+                (strcmp(fs->mntent.mnt_fsname, "none") != 0)))
     {
         file_t source = file_name_lookup(fs->mntent.mnt_fsname, O_NOTRANS, 0666);
         if(source == MACH_PORT_NULL)
@@ -546,17 +532,19 @@ static error_t do_umount(struct fs *fs, int goaway_flags)
                                   NULL, 0, MACH_PORT_NULL,
                                   MACH_MSG_TYPE_COPY_SEND);
 
+
+        mach_port_deallocate(mach_task_self(), source);
+
         if(!(goaway_flags & FSYS_GOAWAY_FORCE))
             err = 0;
         if(err)
             goto end_doumount;
 
-        mach_port_deallocate(mach_task_self(), source);
-        return 0;
     }
 
 end_doumount:
-    return err ? -1 : 0;
+    mach_port_deallocate(mach_task_self(), node);
+    return err;
 }
 
 /* Unmounts a filesystem */
@@ -564,8 +552,6 @@ int umount(const char *target)
 {
     return umount2(target, 0);
 }
-
-#include <stdio.h>
 
 /* Unmounts a filesystem with options */
 int umount2(const char *target, int flags)
@@ -580,10 +566,10 @@ int umount2(const char *target, int flags)
     }
 
     fs = get_mounted_fs(target, &err);
-    if(err || !fs)
+    if(err)
         goto end_umount;
 
-    err |= do_umount(fs, flags);
+    err = do_umount(fs, flags);
 end_umount:
     if(err) errno = err;
     return err ? -1 : 0;
