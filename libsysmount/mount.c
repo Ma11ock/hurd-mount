@@ -94,7 +94,7 @@ end_get_mnted_fs:
 /* Perform the mount */
 static error_t
 do_mount(struct fs *fs, bool remount, char *options,
-                        size_t options_len, const char *fstype)
+         size_t options_len, const char *fstype)
 {
     error_t   err        = 0;
     char     *fsopts     = NULL;
@@ -102,9 +102,9 @@ do_mount(struct fs *fs, bool remount, char *options,
     fsys_t    mounted;
 
     /* Check if we can determine if the filesystem is mounted */
-    /* TODO this sets errno to EPERM?, and if root sets it to 1073741830,
-       with strerror giving "Operation not permitted". mount(8) has the
-       same bug. mounted is always set to MACH_PORT_NULL */
+    /* TODO this sets errno to EPERM? with strerror giving
+       "Operation not permitted", and if root sets it to 1073741830.
+       mount(8) has the same bug. mounted is always set to MACH_PORT_NULL */
     err = fs_fsys(fs, &mounted);
     if(err)
         goto end_domount;
@@ -150,10 +150,9 @@ do_mount(struct fs *fs, bool remount, char *options,
 
     if(remount && fsopts)
     {
-        /* TODO remounting does not work, returns 'operation not supported'
-           when performed on  `fs' file_t, `mounted' is always
-           MACH_PORT_NULL */
-
+        /* TODO remounting does not work, errorstr returns
+           'operation not supported' on errno when performed on
+           `fs' file_t, `mounted' is always MACH_PORT_NULL */
         if(mounted == MACH_PORT_NULL)
         {
             err = EBUSY;
