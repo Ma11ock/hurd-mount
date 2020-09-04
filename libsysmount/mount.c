@@ -102,7 +102,9 @@ do_mount(struct fs *fs, bool remount, char *options,
     fsys_t    mounted;
 
     /* Check if we can determine if the filesystem is mounted */
-    /* TODO this sets errno to EPERM, and if root sets it to 1073741830 */
+    /* TODO this sets errno to EPERM?, and if root sets it to 1073741830,
+       with strerror giving "Operation not permitted". mount(8) has the
+       same bug. mounted is always set to MACH_PORT_NULL */
     err = fs_fsys(fs, &mounted);
     if(err)
         goto end_domount;
