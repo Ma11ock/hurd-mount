@@ -1,4 +1,4 @@
-/* TODO remount does not work yet, further test mount(8) remounting */
+/* TODO remount does not work yet, further test mount(8) remounting */         
 /* test mount(2) and umount(2) behaviour on Linux */
 #include <argp.h>
 #include <argz.h>
@@ -29,6 +29,7 @@ struct mnt_opt_map
     const char   *stropt;
 };
 
+/* For converting mountflags into options for the filesystem driver  */
 static const struct mnt_opt_map mnt_options_maps[] =
 {
     { MS_RDONLY,        "ro" },
@@ -40,13 +41,14 @@ static const struct mnt_opt_map mnt_options_maps[] =
     { MS_STRICTATIME,   "strictatime" },
     { MS_SYNCHRONOUS,   "sync" },
     { MS_NOSUID,        "nosuid" },
+    { 0, NULL }
 };
-
-
+
 /* Gets mounted filesystem from path (can be relative) and stores into fs.
    Returns a pointer to a fs struct on success,
    Returns NULL and sets `err' on failure  */
-static struct fs *get_mounted_fs(const char *path, error_t *err)
+static struct fs *
+get_mounted_fs(const char *path, error_t *err)
 {
     struct fstab  *fstab           = NULL;
     struct fs     *fs              = NULL;
@@ -88,9 +90,10 @@ static struct fs *get_mounted_fs(const char *path, error_t *err)
 end_get_mnted_fs:
     return fs;
 }
-
+
 /* Perform the mount */
-static error_t do_mount(struct fs *fs, bool remount, char *options,
+static error_t
+do_mount(struct fs *fs, bool remount, char *options,
                         size_t options_len, const char *fstype)
 {
     error_t   err        = 0;
@@ -118,8 +121,8 @@ static error_t do_mount(struct fs *fs, bool remount, char *options,
         }
         /*  Prepend `--' to the option to make a long option switch,
             e.g. `--ro' or `--rsize=1024'.  */
-        else if((strcmp(tmp, "defaults") != 0) && (strlen(tmp) != 0) &&
-                (strcmp(tmp, "loop") != 0) && (strcmp(tmp, "exec") != 0))
+        else if((strcmp(tmp, "defaults") != 0) && (strlen(tmp) != 0)
+                && (strcmp(tmp, "loop") != 0) && (strcmp(tmp, "exec") != 0))
 
         {
             size_t tmparg_len = strlen(tmp) + 3;
@@ -180,7 +183,8 @@ static error_t do_mount(struct fs *fs, bool remount, char *options,
                           mach_msg_type_name_t *underlying_type,
                           task_t task, void *cookie)
         {
-            node = file_name_lookup (fs->mntent.mnt_dir, flags | O_NOTRANS, 0666);
+            node = file_name_lookup (fs->mntent.mnt_dir,
+                                     flags | O_NOTRANS, 0666);
             if (node == MACH_PORT_NULL)
             {
                 open_err = errno;
@@ -216,7 +220,8 @@ static error_t do_mount(struct fs *fs, bool remount, char *options,
         }
 
 
-        /* Stick the translator program name in front of the option switches.  */
+        /* Stick the translator program name in front of the option
+           switches.  */
         ARGZ(insert(&fsopts, &fsopts_len, fsopts, type->program));
         /* Now stick the device name on the end as the last argument.  */
         ARGZ(add(&fsopts, &fsopts_len, fs->mntent.mnt_fsname));
@@ -278,9 +283,10 @@ end_domount:
         free(fsopts);
     return err;
 }
-
+
 /* Mounts a filesystem */
-int mount(const char *source, const char *target,
+int
+mount(const char *source, const char *target,
           const char *filesystemtype, unsigned long mountflags,
           const void *data)
 {
@@ -411,7 +417,8 @@ int mount(const char *source, const char *target,
         };
 
         /* TODO This runs slow! */
-        fstab = fstab_argp_create(&fstab_params, SEARCH_FMTS, sizeof(SEARCH_FMTS));
+        fstab = fstab_argp_create(&fstab_params, SEARCH_FMTS,
+                                  sizeof(SEARCH_FMTS));
         if(!fstab)
         {
             err = EINVAL;
@@ -462,7 +469,8 @@ int mount(const char *source, const char *target,
     if(err)                     \
         goto end_mount;
 
-        /* TODO this assumes that data is a string, which might not be correct */
+        /* TODO this assumes that data is a string, which might not be
+           correct */
         ARGZ(create_sep(datastr, ',', &data_ops, &data_ops_len));
 
         {
@@ -470,9 +478,9 @@ int mount(const char *source, const char *target,
             for(char *curstr = data_ops; curstr;
                 curstr = argz_next(data_ops, data_ops_len, curstr))
             {
-                if((strcmp(curstr, MNTOPT_NOAUTO) != 0) &&
-                   (strcmp(curstr, "bind") != 0)        &&
-                   (strcmp(curstr, "remount") != 0))
+                if((strcmp(curstr, MNTOPT_NOAUTO) != 0)
+                   && (strcmp(curstr, "bind") != 0)
+                   && (strcmp(curstr, "remount") != 0))
                 {
                     ARGZ(add(&mnt_ops, &mnt_ops_len, curstr));
                 }
@@ -480,7 +488,8 @@ int mount(const char *source, const char *target,
 
         }
         /* Add OR'd flags to option string */
-        for(size_t i = 0; i < sizeof(mnt_options_maps) / sizeof(struct mnt_opt_map);
+        for(size_t i = 0;
+            mnt_options_maps[i].stropt != NULL;
             i++)
         {
             if(flags & mnt_options_maps[i].intopt)
@@ -507,8 +516,9 @@ end_mount:
     if(err) errno = err;
     return err ? -1 : 0;
 }
-
-static error_t do_umount(struct fs *fs, int goaway_flags)
+
+static error_t
+do_umount(struct fs *fs, int goaway_flags)
 {
 
     error_t err  = 0;
@@ -521,10 +531,11 @@ static error_t do_umount(struct fs *fs, int goaway_flags)
     err = file_set_translator(node, 0, FS_TRANS_SET, goaway_flags, NULL,
                               0, MACH_PORT_NULL, MACH_MSG_TYPE_COPY_SEND);
 
-    if(!err && ((fs->mntent.mnt_fsname[0] != '\0') &&
-                (strcmp(fs->mntent.mnt_fsname, "none") != 0)))
+    if(!err && ((fs->mntent.mnt_fsname[0] != '\0')
+                && (strcmp(fs->mntent.mnt_fsname, "none") != 0)))
     {
-        file_t source = file_name_lookup(fs->mntent.mnt_fsname, O_NOTRANS, 0666);
+        file_t source = file_name_lookup(fs->mntent.mnt_fsname, O_NOTRANS,
+                                         0666);
         if(source == MACH_PORT_NULL)
             goto end_doumount;
 
@@ -546,15 +557,17 @@ end_doumount:
     mach_port_deallocate(mach_task_self(), node);
     return err;
 }
-
+
 /* Unmounts a filesystem */
-int umount(const char *target)
+int
+umount(const char *target)
 {
     return umount2(target, 0);
 }
-
+
 /* Unmounts a filesystem with options */
-int umount2(const char *target, int flags)
+int
+umount2(const char *target, int flags)
 {
     error_t    err  = 0;
     struct fs *fs   = NULL;

@@ -31,8 +31,7 @@ OBJS += ../utils/match-options.o
 
 mount.o: ../sutils/fstab.o ../sutils/clookup.o ../utils/match-options.o \
        $(foreach L,shouldbeinlibc fshelp ports,../lib$L/lib$L.a)
-../sutils/fstab.o ../sutils/clookup.o: FORCE
-    $(MAKE) -C $(@D) $(@F)
+../sutils/fstab.o ../sutils/clookup.o: FORCE ; $(MAKE) -C $(@D) $(@F)
 FORCE:
 
 
