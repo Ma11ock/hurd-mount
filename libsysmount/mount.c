@@ -1,5 +1,3 @@
-/* TODO remount does not work yet, further test mount(8) remounting */         
-/* test mount(2) and umount(2) behaviour on Linux */
 #include <argp.h>
 #include <argz.h>
 #include "../sutils/fstab.h"
@@ -18,7 +16,7 @@
 
 #define SEARCH_FMTS _HURD "%sfs\0" _HURD "%s"
 
-error_t parse_opt(int key, char *arg, struct argp_state *state);
+static error_t parse_opt(int key, char *arg, struct argp_state *state);
 
 struct fstab_argp_params fstab_params;
 
@@ -60,14 +58,47 @@ static const struct mnt_opt_map mnt_options_maps[] =
     { 0, NULL }
 };
 
-error_t
+static error_t
+add_to_argv(char ***out_argv, size_t *out_argc, const char *str)
+{
+    char  **mnt_argv = *out_argv;
+    size_t  mnt_argc = *out_argc;
+
+    /* Fill argv[0] with "" to simulate program call in an actual argv. */
+    if(!out_argv || !mnt_argc)
+    {
+        mnt_argv = malloc(sizeof(char*));
+        if(!mnt_argv)
+            return ENOMEM;
+        mnt_argv[0] = malloc(sizeof(""));
+        if(!mnt_argv[0])
+            return ENOMEM;
+        strcpy(mnt_argv[0], "");
+        mnt_argc++;
+    }
+
+    mnt_argc++;
+    char **check = realloc(mnt_argv, mnt_argc * sizeof(char*));
+    if(!check)
+        return ENOMEM;
+    mnt_argv = check;
+    mnt_argv[mnt_argc - 1] = strdup(str);
+    if(!mnt_argv[mnt_argc - 1])
+        return ENOMEM;
+
+    *out_argc = mnt_argc;
+    *out_argv = mnt_argv;
+    return 0;
+}
+
+static error_t
 parse_opt(int key, char *arg, struct argp_state *state)
 {
     struct fstab_argp_params *params = state->input;
     switch(key)
     {
     case ARGP_KEY_INIT:
-        state->child_inputs[0] = params; /* Pass down fstab_argp parser */
+        state->child_inputs[0] = params; /* Pass down fstab_argp parser. */
         break;
     }
   return 0;
@@ -290,23 +321,9 @@ mount(const char *source, const char *target,
     char                    *mnt_ops     = NULL;
     size_t                   mnt_ops_len = 0;
     /* For argp */
-    char                   **mnt_argv    = malloc(sizeof(char*));
-    int                      mnt_argc    = 0;
     struct fstab            *fstab       = NULL;
 
 
-    if(!mnt_argv)
-    {
-        err = ENOMEM;
-        goto end_mount;
-    }
-    mnt_argv[0] = strdup("");
-    if(!mnt_argv[0])
-    {
-        err = ENOMEM;
-        goto end_mount;
-    }
-    mnt_argc++;
     /* Separate the per-mountpoint flags */
     if(mountflags & MS_BIND)
         firmlink = true;
@@ -403,35 +420,18 @@ mount(const char *source, const char *target,
     }
 
     {
-        char         *data_ops     = NULL;
-        size_t        data_ops_len = 0;
-
-        inline error_t add_arg_toargv(const char *str)
-        {
-            mnt_argc++;
-            char **check = realloc(mnt_argv, mnt_argc * sizeof(char*));
-            if(!check)
-            {
-                mnt_argc--;
-                return ENOMEM;
-            }
-            mnt_argv = check;
-            mnt_argv[mnt_argc - 1] = strdup(str);
-            if(!mnt_argv[mnt_argc - 1])
-            {
-                mnt_argc--;
-                return ENOMEM;
-            }
-            return 0;
-        }
+        char        *data_ops     = NULL;
+        size_t       data_ops_len = 0;
+        char       **mnt_argv     = NULL;
+        size_t       mnt_argc     = 0;
 
         if(device)
         {
-            err = add_arg_toargv(device);
+            err = add_to_argv(&mnt_argv, &mnt_argc, device);
             if(err)
                 goto end_mount;
         }
-        err = add_arg_toargv(mountpoint);
+        err = add_to_argv(&mnt_argv, &mnt_argc, mountpoint);
         if(err)
             goto end_mount;
 #define ARGZ(call)              \
@@ -471,8 +471,15 @@ mount(const char *source, const char *target,
         }
 
 #undef ARGZ
+
+        argp_parse(&argp, mnt_argc, mnt_argv, 0, 0, &fstab_params);
+
+        for(size_t i = 0; i < mnt_argc; i++)
+        {
+            free(mnt_argv[i]);
+        }
+        free(mnt_argv);
     }
-    argp_parse(&argp, mnt_argc, mnt_argv, 0, 0, &fstab_params);
 
     fstab = fstab_argp_create(&fstab_params, SEARCH_FMTS,
                               sizeof(SEARCH_FMTS));
@@ -514,12 +521,6 @@ mount(const char *source, const char *target,
         err = do_mount(fs, remount, mnt_ops, mnt_ops_len, fstype);
 
 end_mount:
-    for(int i = 0; i < mnt_argc; i++)
-    {
-        free(mnt_argv[i]);
-    }
-    if(mnt_argv)
-        free(mnt_argv);
     if(device)
         free(device);
     if(mountpoint)
@@ -586,8 +587,6 @@ umount2(const char *target, int flags)
     error_t        err             = 0;
     struct fs     *fs              = NULL;
     struct fstab  *fstab           = NULL;
-    char          *names           = NULL;
-    size_t         names_len       = 0;
 
     memset(&fstab_params, 0, sizeof(fstab_params));
 
@@ -597,26 +596,23 @@ umount2(const char *target, int flags)
         goto end_umount;
     }
 
-    argz_create_sep(target, ',', &names, &names_len);
-    if(!names)
     {
-        err = ENOMEM;
-        goto end_umount;
-    }
+        char **mnt_argv = NULL;
+        size_t mnt_argc = 0;
 
-    struct fstab_argp_params fstab_params =
-    {
-        fstab_path: _PATH_MOUNTED,
-        program_search_fmts: NULL,
-        program_search_fmts_len: 0,
-        do_all: 0,
-        types: NULL,
-        types_len: 0,
-        exclude: NULL,
-        exclude_len: 0,
-        names: NULL,
-        names_len: 0
-    };
+        err = add_to_argv(&mnt_argv, &mnt_argc, target);
+        if(err)
+            goto end_umount;
+
+        err = argp_parse(&argp, mnt_argc, mnt_argv, 0, 0, &fstab_params);
+        if(err)
+            goto end_umount;
+
+    }
+    /* Read the mtab file by default.  */
+    if (! fstab_params.fstab_path)
+        fstab_params.fstab_path = _PATH_MOUNTED;
+
     fstab = fstab_argp_create(&fstab_params, NULL, 0);
     if(!fstab)
     {
