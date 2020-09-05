@@ -1,8 +1,13 @@
+* mount(2)
+Implementation of mount(2), umount(2), and umount2(2) system calls for the GNU Hurd.
 * TODO
-** mount(8)
+** libc 
+These files are supposed to be part of libc but are currently part of the HURD due to its numerous dependencies on it. See the Makefile.
+** Bugs
+*** mount(8)
 - [ ] bug where every time it tries to remount the filesystem is always MACH_PORT_NULL
 - [ ] mount -v does nothing
-** mount(2)
+*** mount(2)
 - [ ] because the code mostly comes from mount(8) the remount bug is present here as well
 
 
