@@ -18,6 +18,23 @@
 
 #define SEARCH_FMTS _HURD "%sfs\0" _HURD "%s"
 
+error_t parse_opt(int key, char *arg, struct argp_state *state);
+
+struct fstab_argp_params fstab_params;
+
+static const struct argp_option argp_opts[] =
+{
+    {0, 0}
+};
+
+static const struct argp_child argp_kids[] =
+    { { &fstab_argp, 0,
+        "Filesystem selection (if no explicit filesystem arguments given):", 2 },
+      { 0 } };
+
+struct argp argp = { argp_opts, parse_opt, NULL, NULL, argp_kids };
+
+
 /* XXX fix libc */
 #undef _PATH_MOUNTED
 #define _PATH_MOUNTED "/etc/mtab"
@@ -108,7 +125,6 @@ static error_t
 do_mount(struct fs *fs, bool remount, char *options,
          size_t options_len, const char *fstype)
 {
-    puts("Perf mount");
     error_t   err        = 0;
     char     *fsopts     = NULL;
     size_t    fsopts_len = 0;
@@ -321,9 +337,9 @@ mount(const char *source, const char *target,
     char                    *mnt_ops     = NULL;
     size_t                   mnt_ops_len = 0;
     /* For argp */
-    struct fstab_argp_params params;
     char                   **mnt_argv    = malloc(sizeof(char*));
     int                      mnt_argc    = 0;
+
 
     if(!mnt_argv)
     {
@@ -435,8 +451,6 @@ mount(const char *source, const char *target,
     {
         char         *data_ops     = NULL;
         size_t        data_ops_len = 0;
-        char         *argv_ops     = NULL;
-        size_t        argv_ops_len = 0;
 
         inline error_t add_arg_toargv(const char *str)
         {
@@ -457,29 +471,6 @@ mount(const char *source, const char *target,
             return 0;
         }
 
-        inline error_t add_op_to_str(const char *str)
-        {
-            size_t str_size = strlen(str);
-            if(!argv_ops)
-            {
-                argv_ops = malloc(str_size);
-                if(!argv_ops)
-                    return ENOMEM;
-            }
-            else
-            {
-                char  *check = realloc(argv_ops, argv_ops_len * sizeof(char)
-                                       + sizeof(char));
-                if(!check)
-                    return ENOMEM;
-                argv_ops = check;
-                argv_ops[argv_ops_len++] = ',';
-            }
-            memcpy(argv_ops + argv_ops_len, str, str_size + 1);
-            argv_ops_len += str_size;
-            return 0;
-        }
-
         if(device)
         {
             err = add_arg_toargv(device);
@@ -489,16 +480,18 @@ mount(const char *source, const char *target,
         err = add_arg_toargv(mountpoint);
         if(err)
             goto end_mount;
-        err = add_arg_toargv("-o");
-        if(err)
-            goto end_mount;
+        if(remount)
+        {
+            err = add_arg_toargv("-R");
+            if(err)
+                goto end_mount;
+        }
 
 #define ARGZ(call)              \
     err = argz_##call;          \
     if(err)                     \
         goto end_mount;
 
-        add_op_to_str(data);
 
         /* TODO this assumes that data is a string, which might not be
            correct */
@@ -527,59 +520,19 @@ mount(const char *source, const char *target,
             if(flags & mnt_options_maps[i].intopt)
             {
                 ARGZ(add(&mnt_ops, &mnt_ops_len, mnt_options_maps[i].stropt));
-                add_op_to_str(mnt_options_maps[i].stropt);
             }
         }
-
-        add_arg_toargv(argv_ops);
 
 #undef ARGZ
     }
 
-    /* Normal arguments and argp */
-    {
-        static const struct argp_option argp_opts[] =
-        {
-            {"timeout",   'T',    "MILLISECONDS", 0, "Timeout for translator startup"},
-            {"format",    'p',    "mount|fstab|translator", OPTION_ARG_OPTIONAL,
-             "Output format for query (no filesystem arguments)"},
-            {"options", 'o', "OPTIONS", 0, "A `,' separated list of options"},
-            {"readonly", 'r', 0, 0, "Never write to disk or allow opens for writing"},
-            {"writable", 'w', 0, 0, "Use normal read/write behavior"},
-            {"update", 'u', 0, 0, "Flush any meta-data cached in core"},
-            {"remount", 0, 0, OPTION_ALIAS},
-            {"verbose", 'v', 0, 0, "Give more detailed information"},
-            {"no-mtab", 'n', 0, 0, "Do not update /etc/mtab"},
-            {"test-opts", 'O', "OPTIONS", 0,
-             "Only mount fstab entries matching the given set of options"},
-            {"bind", 'B', 0, 0, "Bind mount, firmlink"},
-            {"firmlink", 0, 0, OPTION_ALIAS},
-            {"fake", 'f', 0, 0, "Do not actually mount, just pretend"},
-            {0, 0}
-        };
-
-        static const char doc[] = "Start active filesystem translators";
-        static const char args_doc[] = "\
-        DEVICE\t(in " _PATH_MNTTAB ")\n\
-        DIRECTORY\t(in " _PATH_MNTTAB ")\n\
-        [-t TYPE] DEVICE DIRECTORY\n\
-        -a";
-
-        static const struct argp_child argp_kids[] =
-            { { &fstab_argp, 0,
-                "Filesystem selection (if no explicit filesystem arguments given):", 2 },
-              { 0 } };
-
-        struct argp argp = { argp_opts, parse_opt, args_doc, doc, argp_kids };
-        argp_parse(&argp, mnt_argc, mnt_argv, 0, 0, &params);
-    }
+    argp_parse(&argp, mnt_argc, mnt_argv, 0, 0, &fstab_params);
 
     if(device) /* two-argument form */
     {
         struct fstab *fstab = NULL;
 
-        /* TODO This runs slow! */
-        fstab = fstab_argp_create(&params, SEARCH_FMTS,
+        fstab = fstab_argp_create(&fstab_params, SEARCH_FMTS,
                                   sizeof(SEARCH_FMTS));
         if(!fstab)
         {
@@ -695,6 +648,8 @@ umount2(const char *target, int flags)
 {
     error_t    err  = 0;
     struct fs *fs   = NULL;
+
+    memset(&fstab_params, 0, sizeof(fstab_params));
 
     if(!target || (target[0] == '\0'))
     {
