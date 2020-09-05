@@ -73,53 +73,6 @@ parse_opt(int key, char *arg, struct argp_state *state)
   return 0;
 }
 
-/* Gets mounted filesystem from path (can be relative) and stores into fs.
-   Returns a pointer to a fs struct on success,
-   Returns NULL and sets `err' on failure  */
-static struct fs *
-get_mounted_fs(const char *path, error_t *err)
-{
-    struct fstab  *fstab           = NULL;
-    struct fs     *fs              = NULL;
-    char          *names           = NULL;
-    size_t         names_len       = 0;
-
-
-    argz_create_sep(path, ',', &names, &names_len);
-    if(!names)
-    {
-        *err = ENOMEM;
-        goto end_get_mnted_fs;
-    }
-
-    struct fstab_argp_params fstab_params =
-    {
-        fstab_path: _PATH_MOUNTED,
-        program_search_fmts: NULL,
-        program_search_fmts_len: 0,
-        do_all: 0,
-        types: NULL,
-        types_len: 0,
-        exclude: NULL,
-        exclude_len: 0,
-        names: NULL,
-        names_len: 0
-    };
-    fstab = fstab_argp_create(&fstab_params, NULL, 0);
-    if(!fstab)
-    {
-        *err = errno;
-        goto end_get_mnted_fs;
-    }
-
-    fs = fstab_find_mount(fstab, path);
-    if(!fs)
-        *err = errno;
-
-end_get_mnted_fs:
-    return fs;
-}
-
 /* Perform the mount */
 static error_t
 do_mount(struct fs *fs, bool remount, char *options,
@@ -630,8 +583,11 @@ umount(const char *target)
 int
 umount2(const char *target, int flags)
 {
-    error_t    err  = 0;
-    struct fs *fs   = NULL;
+    error_t        err             = 0;
+    struct fs     *fs              = NULL;
+    struct fstab  *fstab           = NULL;
+    char          *names           = NULL;
+    size_t         names_len       = 0;
 
     memset(&fstab_params, 0, sizeof(fstab_params));
 
@@ -641,7 +597,36 @@ umount2(const char *target, int flags)
         goto end_umount;
     }
 
-    fs = get_mounted_fs(target, &err);
+    argz_create_sep(target, ',', &names, &names_len);
+    if(!names)
+    {
+        err = ENOMEM;
+        goto end_umount;
+    }
+
+    struct fstab_argp_params fstab_params =
+    {
+        fstab_path: _PATH_MOUNTED,
+        program_search_fmts: NULL,
+        program_search_fmts_len: 0,
+        do_all: 0,
+        types: NULL,
+        types_len: 0,
+        exclude: NULL,
+        exclude_len: 0,
+        names: NULL,
+        names_len: 0
+    };
+    fstab = fstab_argp_create(&fstab_params, NULL, 0);
+    if(!fstab)
+    {
+        err = errno;
+        goto end_umount;
+    }
+
+    fs = fstab_find_mount(fstab, target);
+    if(!fs)
+        err = errno;
     if(err)
         goto end_umount;
 
