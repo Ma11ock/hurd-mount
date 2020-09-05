@@ -1,3 +1,11 @@
+/* hurd/libsysmount/mount.c
+   mount(2), umount(2), and umount2(2) implementation.
+
+   Written by Ryan Jeffrey <ryan@ryanmj.xyz>.
+   Based off of code in hurd/utils/mount.c and hurd/utils/umount.c, Copyright
+   Free Software Foundation, Inc.
+ */
+
 #include <argp.h>
 #include <argz.h>
 #include "../sutils/fstab.h"
@@ -43,7 +51,7 @@ struct mnt_opt_map
     const char   *stropt;
 };
 
-/* For converting mountflags into options for the filesystem driver  */
+/* For converting mountflags into options for the filesystem driver.  */
 static const struct mnt_opt_map mnt_options_maps[] =
 {
     { MS_RDONLY,        "ro" },
@@ -104,7 +112,7 @@ parse_opt(int key, char *arg, struct argp_state *state)
   return 0;
 }
 
-/* Perform the mount */
+/* Perform the mount. */
 static error_t
 do_mount(struct fs *fs, bool remount, char *options,
          size_t options_len, const char *fstype)
@@ -114,10 +122,10 @@ do_mount(struct fs *fs, bool remount, char *options,
     size_t    fsopts_len = 0;
     fsys_t    mounted;
 
-    /* Check if we can determine if the filesystem is mounted */
+    /* Check if we can determine if the filesystem is mounted. */
     /* TODO this sets errno to EPERM? with strerror giving
        "Operation not permitted", and if root sets it to 1073741830.
-       mount(8) has the same bug. mounted is always set to MACH_PORT_NULL */
+       mount(8) has the same bug. mounted is always set to MACH_PORT_NULL. */
     err = fs_fsys(fs, &mounted);
     if(err)
         goto end_domount;
@@ -165,7 +173,7 @@ do_mount(struct fs *fs, bool remount, char *options,
     {
         /* TODO remounting does not work, errorstr returns
            'operation not supported' on errno when performed on
-           `fs' file_t, `mounted' is always MACH_PORT_NULL */
+           `fs' file_t, `mounted' is always MACH_PORT_NULL. */
         if(mounted == MACH_PORT_NULL)
         {
             err = EBUSY;
@@ -173,7 +181,7 @@ do_mount(struct fs *fs, bool remount, char *options,
         }
 
 
-        /* Check if the user is just changing the read-write settings */
+        /* Check if the user is just changing the read-write settings. */
         if(strcmp(fsopts, "--rw") == 0)
             err = fs_set_readonly(fs, FALSE);
         else if(strcmp(fsopts, "--ro") == 0)
@@ -298,33 +306,33 @@ end_domount:
     return err;
 }
 
-/* Mounts a filesystem */
+/* Mounts a filesystem. */
 int
 mount(const char *source, const char *target,
       const char *filesystemtype, unsigned long mountflags,
       const void *data)
 {
     /* Remount and firmlink are special because they are options for us and
-       not the filesystem driver */
+       not the filesystem driver. */
     bool                    remount     = false;
     bool                    firmlink    = false;
     error_t                 err         = 0;
     struct fs               *fs         = NULL;
     unsigned long           flags       = 0;
     /* Dynamic copies of `source', `target', and `filesystemtype'
-       respectively */
+       respectively. */
     char                    *device      = NULL;
     char                    *mountpoint  = NULL;
     char                    *fstype      = NULL;
-    /* TODO assumes data is a string */
+    /* TODO assumes data is a string. */
     const char              *datastr     = (data) ? data : "";
     char                    *mnt_ops     = NULL;
     size_t                   mnt_ops_len = 0;
-    /* For argp */
+    /* For argp. */
     struct fstab            *fstab       = NULL;
 
 
-    /* Separate the per-mountpoint flags */
+    /* Separate the per-mountpoint flags. */
     if(mountflags & MS_BIND)
         firmlink = true;
     if(mountflags & MS_REMOUNT)
@@ -346,7 +354,7 @@ mount(const char *source, const char *target,
     if(mountflags & MS_RELATIME)
         flags |= MS_RELATIME;
 
-    /* Check for mount options in data */
+    /* Check for mount options in data. */
     if(strstr(datastr, "remount"))
         remount = true;
     if(strstr(datastr, "bind"))
@@ -354,7 +362,7 @@ mount(const char *source, const char *target,
 
     if(!filesystemtype || (filesystemtype[0] == '\0'))
     {
-        /* Ignore fstype if performing a remount */
+        /* Ignore fstype if performing a remount. */
         if(!remount)
         {
             err = EINVAL;
@@ -398,7 +406,7 @@ mount(const char *source, const char *target,
 
     if(!source || (source[0] == '\0'))
     {
-        /* Ignore source if performing a remount */
+        /* Ignore source if performing a remount. */
         if(!remount)
         {
             err = EINVAL;
@@ -441,12 +449,12 @@ mount(const char *source, const char *target,
 
 
         /* TODO this assumes that data is a string, which might not be
-           correct */
+           correct. */
         ARGZ(create_sep(datastr, ',', &data_ops, &data_ops_len));
 
         {
-            /* Remove `bind', `noauto', and `remount' options */
-            /* Create mnt_argv array for argp                 */
+            /* Remove `bind', `noauto', and `remount' options. */
+            /* Create mnt_argv array for argp.                 */
             for(char *curstr = data_ops; curstr;
                 curstr = argz_next(data_ops, data_ops_len, curstr))
             {
@@ -459,7 +467,7 @@ mount(const char *source, const char *target,
             }
 
         }
-        /* Add OR'd flags to option string */
+        /* Add OR'd flags to option string. */
         for(size_t i = 0;
             mnt_options_maps[i].stropt != NULL;
             i++)
@@ -491,11 +499,11 @@ mount(const char *source, const char *target,
 
     struct mntent m =
     {
-        mnt_fsname: (device) ? device : mountpoint, /* since we cannot
+        mnt_fsname: (device) ? device : mountpoint, /* Since we cannot
                                                     know the device (in a
                                                     remount), using mountpoint
                                                     here leads to more helpful
-                                                    error messages */
+                                                    error messages. */
         mnt_dir: mountpoint,
         mnt_type: fstype,
         mnt_opts: 0,
@@ -573,14 +581,14 @@ end_doumount:
     return err;
 }
 
-/* Unmounts a filesystem */
+/* Unmounts a filesystem. */
 int
 umount(const char *target)
 {
     return umount2(target, 0);
 }
 
-/* Unmounts a filesystem with options */
+/* Unmounts a filesystem with options. */
 int
 umount2(const char *target, int flags)
 {
@@ -608,6 +616,11 @@ umount2(const char *target, int flags)
         if(err)
             goto end_umount;
 
+        for(size_t i = 0; i < mnt_argc; i++)
+        {
+            free(mnt_argv[i]);
+        }
+        free(mnt_argv);
     }
     /* Read the mtab file by default.  */
     if (! fstab_params.fstab_path)

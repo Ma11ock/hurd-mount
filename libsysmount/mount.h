@@ -1,35 +1,43 @@
+/* hurd/libsysmount/mount.h
+   Function declarations for mount(2), umount(2), and umount2(2)
+
+   Written by Ryan Jeffrey.
+   Based off /usr/include/sys/mount.h provided by Arch Linux.
+
+*/
+
 #ifndef _SYS_MOUNT_H
 #define _SYS_MOUNT_H
 
 #include <features.h>
 #include <hurd/fsys.h>
 
-#define MS_RDONLY       1         /* Mount readonly. */
-#define MS_NOSUID       2         /* Ignore suid and sgid bits. */
-#define MS_NODEV        4         /* Disallow access to device special files. */
-#define MS_NOEXEC       8         /* Disallow Program execution. */
-#define MS_SYNCHRONOUS  16        /* Writes are synced at once. */
-#define MS_REMOUNT      32        /* Alter flags of mounted fs. */
-#define MS_MANDLOCK     64        /* Allow mandatory locks on the fs. */
-#define MS_DIRSYNC      128       /* Directory modifications are synchronous. */
-#define MS_NOATIME      1024      /* Do not update the access time.*/
-#define MS_NODIRATIME   2048      /* Do not update directory access times. */
-#define MS_BIND         4096      /* Bind directory to different place. */
-#define MS_MOVE         8192      /**/
-#define MS_REC          16384     /**/
-#define MS_SILENT       32768     /**/
-#define MS_POSIXACL     1 << 16   /* VFS does not apply umask. */
-#define MS_UNBINDABLE   1 << 17   /* Change to unbindable. */
-#define MS_PRIVATE      1 << 18   /* Change to private. */
-#define MS_SLAVE        1 << 19   /* Change to slave. */
-#define MS_SHARED       1 << 20   /* Change to shared. */
-#define MS_RELATIME     1 << 21   /* Update atime relative to mtime/ctime. */
-#define MS_KERNMOUNT    1 << 22   /* This is a kern_mount call. */
-#define MS_I_VERSION    1 << 23   /* Update inode I_version field. */
-#define MS_STRICTATIME  1 << 24   /* Always perform atime updates. */
-#define MS_LAZYTIME     1 << 25   /* Update the on-disk [acm]times lazily. */
-#define MS_ACTIVE       1 << 30   /**/
-#define MS_NOUSER       1 << 31   /**/
+#define MS_RDONLY       1           /* Mount readonly. */
+#define MS_NOSUID       2           /* Ignore suid and sgid bits. */
+#define MS_NODEV        4           /* Disallow access to device special files. */
+#define MS_NOEXEC       8           /* Disallow Program execution. */
+#define MS_SYNCHRONOUS  16          /* Writes are synced at once. */
+#define MS_REMOUNT      32          /* Alter flags of mounted fs. */
+#define MS_MANDLOCK     64          /* Allow mandatory locks on the fs. */
+#define MS_DIRSYNC      128         /* Directory modifications are synchronous. */
+#define MS_NOATIME      1024        /* Do not update the access time.*/
+#define MS_NODIRATIME   2048        /* Do not update directory access times. */
+#define MS_BIND         4096        /* Bind directory to different place. */
+#define MS_MOVE         8192        /**/
+#define MS_REC          16384       /**/
+#define MS_SILENT       32768       /**/
+#define MS_POSIXACL     (1 << 16)   /* VFS does not apply umask. */
+#define MS_UNBINDABLE   (1 << 17)   /* Change to unbindable. */
+#define MS_PRIVATE      (1 << 18)   /* Change to private. */
+#define MS_SLAVE        (1 << 19)   /* Change to slave. */
+#define MS_SHARED       (1 << 20)   /* Change to shared. */
+#define MS_RELATIME     (1 << 21)   /* Update atime relative to mtime/ctime. */
+#define MS_KERNMOUNT    (1 << 22)   /* This is a kern_mount call. */
+#define MS_I_VERSION    (1 << 23)   /* Update inode I_version field. */
+#define MS_STRICTATIME  (1 << 24)   /* Always perform atime updates. */
+#define MS_LAZYTIME     (1 << 25)   /* Update the on-disk [acm]times lazily. */
+#define MS_ACTIVE       (1 << 30)   /**/
+#define MS_NOUSER       (1 << 31)   /**/
 
 /* Flags that can be altered by MS_REMOUNT  */
 #define MS_RMT_MASK (MS_RDONLY | MS_SYNCHRONOUS | MS_MANDLOCK | MS_I_VERSION \
