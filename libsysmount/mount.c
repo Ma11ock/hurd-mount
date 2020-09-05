@@ -339,6 +339,7 @@ mount(const char *source, const char *target,
     /* For argp */
     char                   **mnt_argv    = malloc(sizeof(char*));
     int                      mnt_argc    = 0;
+    struct fstab            *fstab       = NULL;
 
 
     if(!mnt_argv)
@@ -480,13 +481,6 @@ mount(const char *source, const char *target,
         err = add_arg_toargv(mountpoint);
         if(err)
             goto end_mount;
-        if(remount)
-        {
-            err = add_arg_toargv("-R");
-            if(err)
-                goto end_mount;
-        }
-
 #define ARGZ(call)              \
     err = argz_##call;          \
     if(err)                     \
@@ -525,53 +519,43 @@ mount(const char *source, const char *target,
 
 #undef ARGZ
     }
-
     argp_parse(&argp, mnt_argc, mnt_argv, 0, 0, &fstab_params);
 
-    if(device) /* two-argument form */
+    fstab = fstab_argp_create(&fstab_params, SEARCH_FMTS,
+                              sizeof(SEARCH_FMTS));
+    if(!fstab)
     {
-        struct fstab *fstab = NULL;
-
-        fstab = fstab_argp_create(&fstab_params, SEARCH_FMTS,
-                                  sizeof(SEARCH_FMTS));
-        if(!fstab)
-        {
-            err = EINVAL;
-            goto end_mount;
-        }
-
-        struct mntent m =
-        {
-            mnt_fsname: device,
-            mnt_dir: mountpoint,
-            mnt_type: fstype,
-            mnt_opts: 0,
-            mnt_freq: 0,
-            mnt_passno: 0
-        };
-        if(firmlink)
-        {
-            m.mnt_type = strdup("firmlink");
-            if(!m.mnt_type)
-            {
-                err = ENOMEM;
-                goto end_mount;
-            }
-        }
-
-        err = fstab_add_mntent(fstab, &m, &fs);
-        if(err)
-            goto end_mount;
-
+        err = EINVAL;
+        goto end_mount;
     }
-    else if(mountpoint) /* One argument form (remount) */
+
+    struct mntent m =
     {
-        fs = get_mounted_fs(mountpoint, &err);
-        if(err || !fs)
+        mnt_fsname: (device) ? device : mountpoint, /* since we cannot
+                                                    know the device (in a
+                                                    remount), using mountpoint
+                                                    here leads to more helpful
+                                                    error messages */
+        mnt_dir: mountpoint,
+        mnt_type: fstype,
+        mnt_opts: 0,
+        mnt_freq: 0,
+        mnt_passno: 0
+    };
+    if(firmlink)
+    {
+        m.mnt_type = strdup("firmlink");
+        if(!m.mnt_type)
         {
+            err = ENOMEM;
             goto end_mount;
         }
     }
+
+    err = fstab_add_mntent(fstab, &m, &fs);
+    if(err)
+        goto end_mount;
+
 
     if(fs)
         err = do_mount(fs, remount, mnt_ops, mnt_ops_len, fstype);
