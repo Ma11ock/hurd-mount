@@ -1,7 +1,7 @@
 /* hurd/libfshelp/sys/mount.h
    Function declarations for mount(2), umount(2), and umount2(2)
 
-   Written by Ryan Jeffrey.
+   Written by Ryan Jeffrey <ryan@ryanmj.xyz> (C) 2020.
    Based off /usr/include/sys/mount.h provided by Arch Linux.
 
 */

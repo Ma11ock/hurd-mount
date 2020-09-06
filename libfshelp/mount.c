@@ -1,7 +1,7 @@
 /* hurd/libfshelp/mount.c
    mount(2), umount(2), and umount2(2) implementation.
 
-   Written by Ryan Jeffrey <ryan@ryanmj.xyz>.
+   Written by Ryan Jeffrey <ryan@ryanmj.xyz> (C) 2020.
    Based off of code in hurd/utils/mount.c and hurd/utils/umount.c, Copyright
    Free Software Foundation, Inc.
  */
