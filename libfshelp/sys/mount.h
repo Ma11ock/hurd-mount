@@ -1,4 +1,4 @@
-/* hurd/libsysmount/mount.h
+/* hurd/libfshelp/sys/mount.h
    Function declarations for mount(2), umount(2), and umount2(2)
 
    Written by Ryan Jeffrey.

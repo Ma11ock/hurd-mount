@@ -1,4 +1,4 @@
-/* hurd/libsysmount/mount.c
+/* hurd/libfshelp/mount.c
    mount(2), umount(2), and umount2(2) implementation.
 
    Written by Ryan Jeffrey <ryan@ryanmj.xyz>.
