@@ -14,25 +14,37 @@
 #   You should have received a copy of the GNU General Public License
 #   along with the GNU Hurd.  If not, see <http://www.gnu.org/licenses/>.
 
-dir := libsysmount
+dir := libfshelp
 makemode := library
 
-libname = libsysmount
-SRCS = mount.c
+libname = libfshelp
+SRCS =	lock-acquire.c lock-init.c \
+	translator-list.c \
+	start-translator-long.c start-translator.c \
+	fetch-root.c transbox-init.c set-active.c fetch-control.c \
+	drop-transbox.c translated.c \
+	delegate.c \
+	exec-reauth.c \
+	set-options.c \
+	get-identity.c \
+	perms-isowner.c perms-iscontroller.c perms-access.c \
+	perms-checkdirmod.c \
+	touch.c \
+	extern-inline.c \
+	rlock-drop-peropen.c rlock-tweak.c rlock-status.c \
+	mount.c
 
-installhdrs = mount.h
+installhdrs = fshelp.h rlock.h sys/mount.h
 
-HURDLIBS = shouldbeinlibc fshelp ports
-
+HURDLIBS = shouldbeinlibc iohelp ports ihash
+LDLIBS += -lpthread
 OBJS = $(subst .c,.o,$(SRCS))
 OBJS += ../sutils/fstab.o
 OBJS += ../sutils/clookup.o
 OBJS += ../utils/match-options.o
 
-mount.o: ../sutils/fstab.o ../sutils/clookup.o ../utils/match-options.o \
-       $(foreach L,shouldbeinlibc fshelp ports,../lib$L/lib$L.a)
+
 ../sutils/fstab.o ../sutils/clookup.o: FORCE ; $(MAKE) -C $(@D) $(@F)
 FORCE:
-
 
 include ../Makeconf

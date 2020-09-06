@@ -4,14 +4,14 @@
 *.c~
 *.h~
 
-!libsysmount/
-!libsysmount/*
-!libsysmount/*.c
-!libsysmount/*.h
-!libsysmount/Makefile
-!libsysmount/Makefile
-libsysmount/*.c~
-libsysmount/*.h~
+!libfshelp/
+!libfshelp/mount.c
+!libfshelp/sys
+!libfshelp/sys/mount.h
+!libfshelp/Makefile
+libfshelp/Makefile~
+libfshelp/*.c~
+libfshelp/*.h~
 
 Makefile~
 

@@ -66,6 +66,7 @@ static const struct mnt_opt_map mnt_options_maps[] =
     { 0, NULL }
 };
 
+/* Add a string to an argv-like array of strings. */
 static error_t
 add_to_argv(char ***out_argv, size_t *out_argc, const char *str)
 {
@@ -540,6 +541,7 @@ end_mount:
     return err ? -1 : 0;
 }
 
+/* Perform the unmount. */
 static error_t
 do_umount(struct fs *fs, int goaway_flags)
 {
