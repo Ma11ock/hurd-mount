@@ -330,11 +330,11 @@ mount(const char *source, const char *target,
 {
     /* Remount and firmlink are special because they are options for us and
        not the filesystem driver. */
-    bool                    remount     = false;
-    bool                    firmlink    = false;
-    error_t                 err         = 0;
-    struct fs               *fs         = NULL;
-    unsigned long           flags       = 0;
+    bool                    remount      = false;
+    bool                    firmlink     = false;
+    error_t                 err          = 0;
+    struct fs               *fs          = NULL;
+    unsigned long           flags        = 0;
     /* Dynamic copies of `source', `target', and `filesystemtype'
        respectively. */
     char                    *device      = NULL;
@@ -349,8 +349,8 @@ mount(const char *source, const char *target,
 
 
     /* Default to relatime unless overriden */
-    if (!(flags & MS_NOATIME))
-        mnt_flags |= MNT_RELATIME;
+    if (!(mountflags & MS_NOATIME))
+        flags |= MS_RELATIME;
     /* Separate the per-mountpoint flags. */
     if(mountflags & MS_BIND)
         firmlink = true;
