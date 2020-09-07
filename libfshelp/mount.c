@@ -348,6 +348,9 @@ mount(const char *source, const char *target,
     struct fstab            *fstab       = NULL;
 
 
+    /* Default to relatime unless overriden */
+    if (!(flags & MS_NOATIME))
+        mnt_flags |= MNT_RELATIME;
     /* Separate the per-mountpoint flags. */
     if(mountflags & MS_BIND)
         firmlink = true;
@@ -367,8 +370,6 @@ mount(const char *source, const char *target,
         flags &= ~(MS_RELATIME | MS_NOATIME);
     if(mountflags & MS_RDONLY)
         flags |= MS_RDONLY;
-    if(mountflags & MS_RELATIME)
-        flags |= MS_RELATIME;
 
     /* Check for mount options in data. */
     if(strstr(datastr, "remount"))
