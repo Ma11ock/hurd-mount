@@ -77,7 +77,6 @@ static const struct mnt_opt_map mnt_options_maps[] =
     { MS_NOSUID,        "nosuid" },
     { MS_STRICTATIME,   "strictatime" },
     { MS_SYNCHRONOUS,   "sync" },
-    { MS_NOSUID,        "nosuid" },
     { 0, NULL }
 };
 
